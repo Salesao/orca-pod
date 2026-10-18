@@ -1,0 +1,4 @@
+interface:
+  display_name: "Orca Pod: plan, implementation and review"
+  short_description: "Direct pipeline: parallel TODO waves, batch lane review and final approval"
+  default_prompt: "Use $orca-pod: keep the direct Planner → Implementer handoff, the Reviewer's batch review by the protocol, immutable approvals and the Chief Reviewer's FINAL_APPROVED before completion."

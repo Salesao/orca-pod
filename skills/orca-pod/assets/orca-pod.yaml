@@ -1,0 +1,121 @@
+# There can be several profiles. active_profile is the default profile; if there is more than one
+# valid profile, the Coordinator asks which one to use (the choice is not written to the file).
+# The orca-pod-setup form edits all profiles: add, rename, delete.
+active_profile: sol-quality
+
+# language — the language roles use to talk to the user: auto (the language of their message) or a language tag: en, ru, pt-BR.
+language: auto
+
+profiles:
+  # All roles in Pi (pi-subagents). Helper names are YAML keys: worker, reviewer, scout, oracle and
+  # evidence-auditor run as the skill's orca-* agents (without pi-lens), the rest by their own name.
+  sol-quality:
+    default_provider: pi
+    # How many subagents one role runs at the same time: 1–100, 6 if the field is absent.
+    max_subagents: 6
+    roles:
+      planner:
+        model: openai-codex/gpt-5.6-sol
+        thinking: xhigh
+        use_subagents: true # Parallel scouts by code area; oracle — only for a contested decision.
+        subagents:
+          scout:
+            model: inherit
+            thinking: low
+          researcher:
+            model: inherit
+            thinking: medium
+          oracle:
+            model: inherit
+            thinking: high
+      implementer:
+        # Integrator: the independent TODOs of a wave — by parallel workers.
+        model: zai/glm-5.3-flash
+        thinking: high
+        use_subagents: true
+        # inherit — the corresponding setting of its own parent role.
+        subagents:
+          worker:
+            model: inherit
+            thinking: inherit
+          scout:
+            model: inherit
+            thinking: low
+          researcher:
+            model: openai-codex/gpt-5.6-sol
+            thinking: medium
+      reviewer:
+        # Batch review: parallel reviewer-lanes by TODO/seams/delta + lens-checker.
+        model: openai-codex/gpt-5.6-sol
+        thinking: xhigh
+        use_subagents: true
+        subagents:
+          reviewer:
+            model: inherit
+            thinking: high
+          lens-checker:
+            model: inherit
+            thinking: low
+      chief_reviewer:
+        # Chief final review: FINAL_APPROVED comes only from this role; the model is usually stronger than the Reviewer's.
+        model: openai-codex/gpt-5.6-sol
+        thinking: xhigh
+        use_subagents: true
+        subagents:
+          reviewer:
+            model: inherit
+            thinking: high
+          evidence-auditor:
+            model: inherit
+            thinking: medium
+
+  # All roles in Claude Code. A helper's model is inherit or an alias opus|sonnet|haiku|fable;
+  # thinking — low..max or inherit. There is no lens-checker in Claude Code (no pi-lens).
+  claude-quality:
+    default_provider: claude-code
+    max_subagents: 6
+    roles:
+      planner:
+        model: opus
+        thinking: xhigh
+        use_subagents: true
+        subagents:
+          scout:
+            model: sonnet
+            thinking: low
+          researcher:
+            model: sonnet
+            thinking: medium
+          oracle:
+            model: inherit
+            thinking: high
+      implementer:
+        model: sonnet
+        thinking: high
+        use_subagents: true
+        subagents:
+          worker:
+            model: inherit
+            thinking: inherit
+          scout:
+            model: sonnet
+            thinking: low
+      reviewer:
+        model: opus
+        thinking: high
+        use_subagents: true
+        subagents:
+          reviewer:
+            model: sonnet
+            thinking: high
+      chief_reviewer:
+        model: opus
+        thinking: max
+        use_subagents: true
+        subagents:
+          reviewer:
+            model: opus
+            thinking: high
+          evidence-auditor:
+            model: inherit
+            thinking: high

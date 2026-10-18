@@ -1,0 +1,8 @@
+{
+  "name": "orca-pod-sandbox",
+  "private": true,
+  "type": "module",
+  "description": "A training project for the orca-pod test run",
+  "scripts": { "test": "node --test" },
+  "engines": { "node": ">=20" }
+}
