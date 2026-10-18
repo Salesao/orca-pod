@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-i18n="page.title">Orca pipeline — setup</title>
+  <link rel="stylesheet" href="/bootstrap.css">
+  <link rel="stylesheet" href="/form.css">
+  <script type="module" src="/form.js"></script>
+</head>
+<body>
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-planner" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m4 6 1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></symbol>
+    <symbol id="i-implementer" viewBox="0 0 24 24"><path d="M14.5 4 20 9.5 9 20.5H3.5V15z"/><path d="m12 6.5 5.5 5.5"/></symbol>
+    <symbol id="i-reviewer" viewBox="0 0 24 24"><path d="M12 3 4.5 6.5v5.2c0 4.6 3.2 7.8 7.5 9.3 4.3-1.5 7.5-4.7 7.5-9.3V6.5z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-chief_reviewer" viewBox="0 0 24 24"><circle cx="12" cy="9" r="5.5"/><path d="m9.8 9 1.5 1.5 3-3"/><path d="m8.5 13.8-1.5 7.2 5-2.5 5 2.5-1.5-7.2"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><path d="m8 12.5 2.7 2.7L16.3 9.5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5 2.5 20h19z"/><path d="M12 10v4.5M12 17.2v.3"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M15.5 8.5V5.5a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/></symbol>
+  </svg>
+
+  <a class="skip-link" href="#roles" data-i18n="skip.roles">Skip to roles</a>
+
+  <main class="app container" id="form-screen" aria-busy="true">
+    <header class="app-header">
+      <div class="app-topline">
+        <p class="app-eyebrow">Orca pipeline</p>
+        <!-- UI language: form.js marks the active button with aria-pressed and remembers the choice. -->
+        <div class="lang-toggle" id="lang-toggle" role="group" aria-label="Interface language" data-i18n-attr="aria-label:lang.toggle.label">
+          <button type="button" class="lang-btn" data-lang="en" lang="en" aria-pressed="true" data-i18n-attr="title:lang.name.en">EN</button>
+          <button type="button" class="lang-btn" data-lang="ru" lang="ru" aria-pressed="false" data-i18n-attr="title:lang.name.ru">RU</button>
+        </div>
+      </div>
+      <h1 class="app-title" data-i18n="app.title">Pipeline role setup</h1>
+      <p class="app-lead" data-i18n="app.lead">The pipeline splits a task between four roles in separate Orca terminals: Planner writes the plan,
+        Implementer carries it out, Reviewer and Chief Reviewer check the result independently. Here you pick an agent and a
+        model for each role by strength and price, plus the subagents the role hands work to in parallel.</p>
+      <!-- Text and the path element are put together by form.js (message app.meta, placeholder {path}). -->
+      <p class="app-meta" id="app-meta">Settings will be saved to <code class="app-path" id="target-path">orca-pod.yaml</code> — the agent writes the file after validation.</p>
+    </header>
+
+    <div class="error-summary" id="error-summary" role="alert" tabindex="-1" aria-labelledby="error-summary-title" hidden>
+      <h2 class="error-summary-title" id="error-summary-title">
+        <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+        <span data-i18n="errors.title">The form was not accepted — fix the fields</span>
+      </h2>
+      <ul class="error-summary-list" id="error-summary-list"></ul>
+    </div>
+
+    <section class="panel" aria-labelledby="language-title">
+      <h2 class="panel-title" id="language-title" data-i18n="language.title">Language</h2>
+      <div class="row g-3">
+        <div class="col-12 col-md-6 col-lg-4">
+          <label class="form-label" for="language"><span data-i18n="language.label">Roles language</span> <span class="label-key">language</span></label>
+          <select class="form-select" id="language" disabled aria-describedby="language-help language-err"></select>
+          <div class="invalid-feedback" id="language-err"></div>
+          <div class="form-text" id="language-help" data-i18n="language.help">One language per project, for all profiles: the roles talk to you in it in their terminals. “Auto” follows the language of your message, or English when there is no text. Other tags (for example pt-BR) are set by editing the YAML and are kept by the form.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="profiles-title">
+      <div class="panel-head">
+        <h2 class="panel-title" id="profiles-title" data-i18n="profiles.title">Profiles</h2>
+        <button type="button" class="btn btn-outline-secondary btn-sm btn-icon-text" id="profile-add" disabled>
+          <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n="profiles.add">Add profile</span>
+        </button>
+      </div>
+      <p class="panel-lead" data-i18n="profiles.lead">A profile is its own set of agents, models and limits, for example “fast” and “high quality”.
+        A new profile is created as a copy of the current one. If there are several profiles, the Coordinator asks which one to use before launching.</p>
+      <div class="profile-tabs" id="profile-tabs" role="tablist" aria-label="Profiles" data-i18n-attr="aria-label:profiles.tabsLabel"></div>
+      <div id="form-notes" class="form-notes"></div>
+      <details class="sources">
+        <summary data-i18n="sources.summary">Where the models come from</summary>
+        <ul class="sources-list" id="sources"></ul>
+      </details>
+    </section>
+
+    <div id="profile-panel" role="tabpanel" tabindex="-1">
+      <section class="panel" aria-labelledby="profile-settings-title">
+        <h2 class="panel-title" id="profile-settings-title">Profile</h2>
+        <div class="row g-3">
+          <div class="col-12 col-md-6 col-lg-4">
+            <label class="form-label" for="profile-name"><span data-i18n="profile.name.label">Name</span> <span class="label-key" data-i18n="profile.name.key">profiles.&lt;name&gt;</span></label>
+            <input class="form-control mono" id="profile-name" type="text" maxlength="64" autocomplete="off" spellcheck="false" aria-describedby="profile-name-help profile-name-err">
+            <div class="invalid-feedback" id="profile-name-err"></div>
+            <div class="form-text" id="profile-name-help" data-i18n="profile.name.help">Letters, digits, “.”, “_” or “-”, no spaces, up to 64 characters.</div>
+          </div>
+          <div class="col-12 col-md-6 col-lg-4">
+            <label class="form-label" for="default-provider"><span data-i18n="profile.provider.label">Default agent</span> <span class="label-key">default_provider</span></label>
+            <select class="form-select" id="default-provider" aria-describedby="default-provider-help"></select>
+            <div class="form-text" id="default-provider-help" data-i18n="profile.provider.help">Roles set to “default” run in this agent.</div>
+          </div>
+          <div class="col-12 col-md-6 col-lg-4">
+            <label class="form-label" for="max-subagents"><span data-i18n="profile.max.label">Concurrent subagents</span> <span class="label-key">max_subagents</span></label>
+            <input class="form-control" id="max-subagents" type="number" min="1" max="100" step="1" inputmode="numeric" aria-describedby="max-subagents-help max-subagents-err">
+            <div class="invalid-feedback" id="max-subagents-err"></div>
+            <div class="form-text" id="max-subagents-help">How many subagents one role runs at the same time: from 1 to 100, 6 by default. This is not a counter: more can run in total during a run.</div>
+          </div>
+        </div>
+        <div class="full-access" id="full-access-block">
+          <span class="form-label" id="full-access-label"><span data-i18n="fullAccess.label">Full access</span> <span class="label-key">full_access</span></span>
+          <div class="form-switch-row form-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="full-access" aria-labelledby="full-access-label" aria-describedby="full-access-state full-access-help">
+            <label for="full-access" class="use-state" id="full-access-state"></label>
+          </div>
+          <div class="form-text" id="full-access-help" data-i18n="fullAccess.help">Yolo: roles in Codex and Claude Code start without confirmations and without a sandbox — the agent runs any command and changes any file on the machine without asking. Pi and OMP are unaffected.</div>
+        </div>
+        <div class="profile-actions">
+          <div class="profile-default">
+            <span class="form-label" id="profile-default-label"><span data-i18n="profile.default.label">Default profile</span> <span class="label-key">active_profile</span></span>
+            <div class="form-switch-row form-switch">
+              <input class="form-check-input" type="checkbox" role="switch" id="profile-default" aria-labelledby="profile-default-label" aria-describedby="profile-default-state">
+              <label for="profile-default" class="use-state" id="profile-default-state"></label>
+            </div>
+          </div>
+          <div class="profile-delete">
+            <button type="button" class="btn btn-outline-danger btn-sm" id="profile-delete" data-i18n="profile.delete">Delete profile</button>
+            <span class="helpers-hint" id="profile-delete-hint"></span>
+          </div>
+        </div>
+        <p class="review-mode" id="review-mode" role="status" aria-live="polite"></p>
+      </section>
+
+      <div id="roles" class="roles" tabindex="-1">
+        <p class="loading" id="loading" role="status" data-i18n="loading">Loading model catalogs…</p>
+      </div>
+    </div>
+  </main>
+
+  <section class="app container result" id="done-screen" aria-labelledby="done-title" hidden>
+    <div class="result-head">
+      <svg class="icon icon-xl result-icon" aria-hidden="true"><use href="#i-check"/></svg>
+      <h1 class="app-title" id="done-title" tabindex="-1" data-i18n="done.title">Settings handed to the agent</h1>
+      <p class="app-lead" data-i18n="done.lead">The agent will validate the YAML and save it to the file. You can close this tab.</p>
+      <code class="app-path" id="done-path"></code>
+    </div>
+    <div class="yaml-box">
+      <div class="yaml-head">
+        <span class="yaml-name">orca-pod.yaml</span>
+        <button type="button" class="btn btn-outline-secondary btn-sm btn-icon-text" id="copy-btn">
+          <svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg><span data-i18n="done.copy">Copy</span>
+        </button>
+      </div>
+      <pre class="yaml-pre" id="yaml-pre" tabindex="0" aria-label="Generated YAML" data-i18n-attr="aria-label:done.yamlLabel"></pre>
+      <p class="visually-hidden" id="copy-status" role="status" aria-live="polite"></p>
+    </div>
+  </section>
+
+  <section class="app container result" id="cancel-screen" aria-labelledby="cancel-title" hidden>
+    <div class="result-head">
+      <h1 class="app-title" id="cancel-title" tabindex="-1" data-i18n="cancel.title">Setup cancelled</h1>
+      <p class="app-lead" data-i18n="cancel.lead">The configuration is unchanged. You can close this tab.</p>
+    </div>
+  </section>
+
+  <footer class="action-bar" id="action-bar">
+    <div class="container action-bar-inner">
+      <p class="action-bar-status" id="bar-status" role="status" aria-live="polite">Generate YAML → the agent validates and saves the config</p>
+      <div class="action-bar-buttons">
+        <button class="btn btn-outline-secondary" id="cancel-btn" type="button" disabled data-i18n="bar.cancel">Cancel</button>
+        <button class="btn btn-primary btn-cta" id="submit-btn" type="button" disabled>Generate YAML</button>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
