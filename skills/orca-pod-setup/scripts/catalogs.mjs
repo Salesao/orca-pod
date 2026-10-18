@@ -189,6 +189,8 @@ async function piRpcModels(cwd) {
         }
       }
     });
+    // pi may exit before it reads the request (EPIPE); the 'close' handler above reports that.
+    child.stdin.on('error', () => {});
     child.stdin.write(JSON.stringify({ id: 'orca-setup-models', type: 'get_available_models' }) + '\n');
   });
 }
