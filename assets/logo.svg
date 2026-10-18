@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="t">
+  <title id="t">orca-pod</title>
+  <rect width="256" height="256" rx="58" fill="#0B2230"/>
+  <path d="M0 200 C 40 190, 74 210, 114 200 S 192 190, 255.86 202 A58 58 0 0 1 198 256 H58 A58 58 0 0 1 0.03 200 Z" fill="#0F3447"/>
+  <path d="M12 222 C 50 214, 90 230, 140 222 S 214 214, 244 224" fill="none" stroke="#1B5670" stroke-width="2.5" stroke-linecap="round"/>
+  <rect x="0.5" y="0.5" width="255" height="255" rx="57.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.1"/>
+  <!-- the pipeline: planner, implementer, reviewer, chief reviewer -->
+  <path d="M50 96 C 76 80, 102 68, 132 60 S 178 50, 204 56" fill="none" stroke="#3FE0C5" stroke-opacity="0.55" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 8"/>
+  <g transform="translate(22 92) rotate(-7 100 60)">
+    <path d="M206 74 C204 60 190 48 170 44 C158 42 148 42 140 42 C134 34 126 18 116 2 C112 16 108 36 102 48 C86 52 66 58 50 62 C42 64 34 58 24 46 C18 40 10 36 2 36 C9 46 13 54 15 64 C13 74 9 84 3 94 C16 92 28 84 38 80 C58 88 84 100 112 104 C136 108 164 102 182 92 C196 85 205 80 206 74 Z" fill="#06151E" stroke="#BFE9EE" stroke-width="2.2" stroke-linejoin="round"/>
+    <path d="M122 102 C128 114 138 122 152 124 C150 114 146 106 142 99 Z" fill="#06151E" stroke="#BFE9EE" stroke-width="2.2" stroke-linejoin="round"/>
+    <path d="M200 79 C174 90 144 86 120 90 C98 90 72 82 54 77 L38 80 C58 88 84 100 112 104 C136 108 164 102 182 92 C190 88 196 84 200 79 Z" fill="#F4FBFC"/>
+    <ellipse cx="168" cy="58" rx="13.5" ry="5.4" transform="rotate(-26 168 58)" fill="#F4FBFC"/>
+    <path d="M102 48 C90 52 76 57 66 63 C78 62 90 59 104 55 Z" fill="#9CC9D2" fill-opacity="0.7"/>
+  </g>
+  <circle cx="50" cy="96" r="9" fill="#0B2230" stroke="#3FE0C5" stroke-width="4"/>
+  <circle cx="100" cy="70" r="11" fill="#0B2230" stroke="#3FE0C5" stroke-width="4"/>
+  <circle cx="152" cy="55" r="13" fill="#0B2230" stroke="#3FE0C5" stroke-width="4"/>
+  <circle cx="206" cy="56" r="17" fill="#FFB84D"/>
+  <path d="M198 56.5 l6 6 l11 -12" fill="none" stroke="#0B2230" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

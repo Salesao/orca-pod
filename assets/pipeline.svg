@@ -1,0 +1,156 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="948" height="630" viewBox="0 0 948 630" role="img" aria-labelledby="t d">
+  <title id="t">How orca-pod works</title>
+  <desc id="d">You run /orca-pod with a task. The Coordinator opens a terminal per role and hands the task to the Planner, which agrees a spec and a plan with you. The Implementer runs the plan with parallel workers and sends one review request per stage. The optional Reviewer checks each stage with parallel review lanes and sends it back for up to 3 rounds. The optional Chief Reviewer does the final review. Each role can delegate to its own helper subagents. The run ends FINAL_APPROVED, SELF_VERIFIED or BLOCKED.</desc>
+  <defs>
+    <clipPath id="card"><rect width="948" height="630" rx="14"/></clipPath>
+    <marker id="ah-aqua" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#3FE0C5"/></marker>
+    <marker id="ah-amber" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#FFB84D"/></marker>
+  </defs>
+  <g clip-path="url(#card)">
+    <rect width="948" height="630" fill="#0B2230"/>
+
+    <!-- arrows -->
+    <g fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M120 76 V119" stroke="#3FE0C5" marker-end="url(#ah-aqua)"/>
+      <path d="M120 208 V251" stroke="#3FE0C5" marker-end="url(#ah-aqua)"/>
+      <path d="M212 358 H259" stroke="#3FE0C5" marker-end="url(#ah-aqua)"/>
+      <path d="M448 358 H495" stroke="#3FE0C5" marker-end="url(#ah-aqua)"/>
+      <path d="M684 358 H731" stroke="#3FE0C5" marker-end="url(#ah-aqua)"/>
+      <path d="M592 256 V232 H356 V251" stroke="#3FE0C5" stroke-dasharray="2 6" marker-end="url(#ah-aqua)"/>
+      <path d="M828 256 V213" stroke="#FFB84D" marker-end="url(#ah-amber)"/>
+      <path d="M120 460 V492 M356 460 V492 M592 460 V492 M828 460 V492" stroke="#3C7F8F" stroke-dasharray="2 5"/>
+    </g>
+
+    <!-- you -->
+    <rect x="28.5" y="28.5" width="183" height="47" rx="10" fill="#0D2A3A" stroke="#1B5670"/>
+    <g transform="translate(42 40)" fill="none" stroke="#9FC3CD" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></g>
+    <text x="76" y="48" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#F4FBFC">You</text>
+    <text x="76" y="64" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#3FE0C5">/orca-pod &lt;task&gt;</text>
+
+    <!-- coordinator -->
+    <rect x="28.5" y="124.5" width="419" height="83" rx="10" fill="#0D2A3A" stroke="#1B5670"/>
+    <g transform="translate(44 154)" fill="none" stroke="#9FC3CD" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m7.5 10 3 2-3 2M13 15h4"/></g>
+    <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" fill="#9FC3CD">
+      <text x="80" y="143" font-size="14" font-weight="600" fill="#F4FBFC">Coordinator</text>
+      <text x="80" y="161">Your own session: checks the config,</text>
+      <text x="80" y="179">opens a terminal per role, hands the task</text>
+      <text x="80" y="197">to the Planner and exits.</text>
+    </g>
+
+    <!-- verdict -->
+    <rect x="736.5" y="124.5" width="183" height="83" rx="10" fill="#0F3447" stroke="#FFB84D" stroke-opacity="0.6"/>
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#CFE6EA">
+      <text x="752" y="143" fill="#9FC3CD">the run ends</text>
+      <text x="752" y="161" font-weight="700" fill="#FFB84D">FINAL_APPROVED</text>
+      <text x="752" y="179">SELF_VERIFIED</text>
+      <text x="752" y="197">BLOCKED</text>
+    </g>
+
+    <!-- role cards -->
+    <rect x="28.5" y="256.5" width="183" height="203" rx="12" fill="#0F3447" stroke="#1B5670"/>
+    <rect x="264.5" y="256.5" width="183" height="203" rx="12" fill="#0F3447" stroke="#1B5670"/>
+    <rect x="500.75" y="256.75" width="182.5" height="202.5" rx="12" fill="#0F3447" stroke="#2D8199" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <rect x="736.75" y="256.75" width="182.5" height="202.5" rx="12" fill="#0F3447" stroke="#2D8199" stroke-width="1.5" stroke-dasharray="5 4"/>
+
+    <!-- bubbles -->
+    <circle cx="62" cy="290" r="17" fill="#0B2230" stroke="#3FE0C5" stroke-width="1.6"/>
+    <g transform="translate(53 281) scale(0.75)" fill="none" stroke="#3FE0C5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4.5" width="14" height="17" rx="2.5"/><path d="M9 4.5v-1a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1M9 11h6M9 15h4"/></g>
+    <circle cx="298" cy="290" r="17" fill="#0B2230" stroke="#3FE0C5" stroke-width="1.6"/>
+    <g transform="translate(289 281) scale(0.75)" fill="none" stroke="#3FE0C5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19v-6M12 13 6.5 7.5M12 13V7.5M12 13l5.5-5.5"/><circle cx="6" cy="6" r="1.6"/><circle cx="12" cy="6" r="1.6"/><circle cx="18" cy="6" r="1.6"/><circle cx="12" cy="20" r="1.6"/></g>
+    <circle cx="534" cy="290" r="17" fill="#0B2230" stroke="#3FE0C5" stroke-width="1.6"/>
+    <g transform="translate(525 281) scale(0.75)" fill="none" stroke="#3FE0C5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21M7.8 10.6l1.9 1.9 3.4-3.7"/></g>
+    <circle cx="770" cy="290" r="17.8" fill="#FFB84D"/>
+    <g transform="translate(761 281) scale(0.75)" fill="none" stroke="#0B2230" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5.5c0 4.6 3 8.3 7 9.5 4-1.2 7-4.9 7-9.5V6z"/><path d="m8.8 12 2.2 2.2 4.2-4.4"/></g>
+
+    <!-- role text -->
+    <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#F4FBFC">
+      <text x="44" y="334">Planner</text>
+      <text x="280" y="334">Implementer</text>
+      <text x="516" y="334">Reviewer</text>
+      <text x="752" y="334">Chief Reviewer</text>
+    </g>
+    <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" fill="#9FC3CD">
+      <text x="44" y="354">Researches the code,</text>
+      <text x="44" y="372">then agrees a spec and</text>
+      <text x="44" y="390">a plan with you. You</text>
+      <text x="44" y="408">approve both.</text>
+
+      <text x="280" y="354">Runs each wave of</text>
+      <text x="280" y="372">independent TODOs with</text>
+      <text x="280" y="390">parallel workers, then</text>
+      <text x="280" y="408">integrates and checks.</text>
+
+      <text x="516" y="354">Optional. Checks each</text>
+      <text x="516" y="372">stage with parallel</text>
+      <text x="516" y="390">review lanes and keeps</text>
+      <text x="516" y="408">a findings registry.</text>
+
+      <text x="752" y="354">Optional. Final review</text>
+      <text x="752" y="372">of all the code, after</text>
+      <text x="752" y="390">every stage is</text>
+      <text x="752" y="408">accepted.</text>
+    </g>
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" fill="#3FE0C5">
+      <text x="44" y="442">spec + plan</text>
+      <text x="280" y="442">REVIEW_REQUEST</text>
+      <text x="516" y="442">findings registry</text>
+      <text x="752" y="442" fill="#FFB84D">FINAL_APPROVED</text>
+    </g>
+
+    <!-- helper subagents of each role -->
+    <g fill="none" stroke="#1F6075" stroke-dasharray="3 3">
+      <rect x="28.5" y="492.5" width="183" height="109" rx="10"/>
+      <rect x="264.5" y="492.5" width="183" height="109" rx="10"/>
+      <rect x="500.5" y="492.5" width="183" height="109" rx="10"/>
+      <rect x="736.5" y="492.5" width="183" height="109" rx="10"/>
+    </g>
+    <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11" fill="#7FA8B3">
+      <text x="128" y="480">delegates to</text>
+      <text x="364" y="480">delegates to</text>
+      <text x="600" y="480">delegates to</text>
+      <text x="836" y="480">delegates to</text>
+    </g>
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" letter-spacing="1.2" fill="#7FA8B3">
+      <text x="40" y="511">HELPER SUBAGENTS</text>
+      <text x="276" y="511">HELPER SUBAGENTS</text>
+      <text x="512" y="511">HELPER SUBAGENTS</text>
+      <text x="748" y="511">HELPER SUBAGENTS</text>
+    </g>
+    <g fill="#12384D" stroke="#1F6075">
+      <rect x="40.5" y="520.5" width="47" height="19" rx="5"/>
+      <rect x="91.5" y="520.5" width="80" height="19" rx="5"/>
+      <rect x="40.5" y="544.5" width="54" height="19" rx="5"/>
+      <rect x="276.5" y="520.5" width="73" height="19" rx="5"/>
+      <rect x="353.5" y="520.5" width="47" height="19" rx="5"/>
+      <rect x="276.5" y="544.5" width="80" height="19" rx="5"/>
+      <rect x="360.5" y="544.5" width="67" height="19" rx="5"/>
+      <rect x="512.5" y="520.5" width="87" height="19" rx="5"/>
+      <rect x="603.5" y="520.5" width="47" height="19" rx="5"/>
+      <rect x="512.5" y="544.5" width="126" height="19" rx="5"/>
+      <rect x="748.5" y="520.5" width="120" height="19" rx="5"/>
+      <rect x="748.5" y="544.5" width="87" height="19" rx="5"/>
+      <rect x="839.5" y="544.5" width="47" height="19" rx="5"/>
+      <rect x="748.5" y="568.5" width="126" height="19" rx="5"/>
+    </g>
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#CFE6EA">
+      <text x="47" y="534">scout</text>
+      <text x="98" y="534">researcher</text>
+      <text x="47" y="558">oracle</text>
+      <text x="283" y="534">worker ×N</text>
+      <text x="360" y="534">scout</text>
+      <text x="283" y="558">researcher</text>
+      <text x="367" y="558">verifier</text>
+      <text x="519" y="534">reviewer ×N</text>
+      <text x="610" y="534">scout</text>
+      <text x="519" y="558">lens-checker · Pi</text>
+      <text x="755" y="534">evidence-auditor</text>
+      <text x="755" y="558">reviewer ×N</text>
+      <text x="846" y="558">scout</text>
+      <text x="755" y="582">lens-checker · Pi</text>
+    </g>
+
+    <!-- loop label -->
+    <text x="462" y="217" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" fill="#9FC3CD">revise, up to 3 rounds</text>
+  </g>
+  <rect x="0.5" y="0.5" width="947" height="629" rx="13.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.08"/>
+</svg>

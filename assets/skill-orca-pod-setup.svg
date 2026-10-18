@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="948" height="220" viewBox="0 0 948 220" role="img" aria-labelledby="t d">
+  <title id="t">orca-pod-setup</title>
+  <desc id="d">orca-pod-setup: a browser form that writes the orca-pod.yaml config.</desc>
+  <defs><clipPath id="card"><rect width="948" height="220" rx="14"/></clipPath></defs>
+  <g clip-path="url(#card)">
+    <rect width="948" height="220" fill="#0B2230"/>
+    <path d="M0 190 C 120 180, 230 200, 360 190 S 600 178, 760 190 S 900 196, 948 188 V220 H0 Z" fill="#0F3447"/>
+    <path d="M0 208 C 140 201, 260 215, 420 208 S 700 201, 948 210" fill="none" stroke="#1B5670" stroke-width="2" stroke-linecap="round"/>
+    <svg x="40" y="50" width="120" height="120" viewBox="0 0 256 256">
+      <rect width="256" height="256" rx="58" fill="#0B2230"/>
+      <path d="M88 216 C 102 178, 116 148, 134 124 C 146 152, 164 188, 184 216 Z" fill="#06151E" stroke="#BFE9EE" stroke-width="4" stroke-linejoin="round"/>
+      <path d="M0 204 C 40 194, 74 214, 114 204 S 192 194, 255.7 206 A58 58 0 0 1 198 256 H58 A58 58 0 0 1 0.3 204 Z" fill="#0F3447"/>
+      <path d="M12 224 C 50 216, 90 232, 140 224 S 214 216, 244 226" fill="none" stroke="#1B5670" stroke-width="2.5" stroke-linecap="round"/>
+      <rect x="0.5" y="0.5" width="255" height="255" rx="57.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.14"/>
+      <circle cx="128" cy="70" r="40" fill="#0B2230" stroke="#3FE0C5" stroke-width="5"/>
+      <g transform="translate(98 40) scale(2.5)" fill="none" stroke="#3FE0C5" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h8M18 7h2M4 17h2M12 17h8"/><circle cx="15" cy="7" r="2.6"/><circle cx="9" cy="17" r="2.6"/></g>
+    </svg>
+    <text x="190" y="56" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="600" letter-spacing="1.8" fill="#3FE0C5">AGENT SKILL</text>
+    <text x="190" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="32" font-weight="700" fill="#F4FBFC">orca-pod-setup</text>
+    <text x="190" y="126" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="16" fill="#D6EAEE">A browser form that writes your orca-pod.yaml config.</text>
+    <rect x="190.5" y="146.5" width="207" height="27" rx="8" fill="#3FE0C5" fill-opacity="0.08" stroke="#1F6075"/><text x="202" y="164" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11" fill="#9FC3CD">Claude Code</text><text x="272" y="164.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" fill="#F4FBFC">/orca-pod-setup</text>
+    <rect x="406.5" y="146.5" width="176" height="27" rx="8" fill="#3FE0C5" fill-opacity="0.08" stroke="#1F6075"/><text x="418" y="164" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11" fill="#9FC3CD">Codex</text><text x="457" y="164.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" fill="#F4FBFC">$orca-pod-setup</text>
+    <rect x="591.5" y="146.5" width="203" height="27" rx="8" fill="#3FE0C5" fill-opacity="0.08" stroke="#1F6075"/><text x="603" y="164" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11" fill="#9FC3CD">Pi</text><text x="623" y="164.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" fill="#F4FBFC">/skill:orca-pod-setup</text>
+  </g>
+  <rect x="0.5" y="0.5" width="947" height="219" rx="13.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.08"/>
+</svg>
