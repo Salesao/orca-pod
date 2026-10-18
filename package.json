@@ -1,0 +1,30 @@
+{
+  "name": "orca-pod",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent skills that run one task through Planner, Implementer, Reviewer and Chief Reviewer terminals in Orca (Claude Code, Codex, Pi)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Salesao/orca-pod.git"
+  },
+  "scripts": {
+    "test": "node --test skills/orca-pod/scripts/*.test.mjs skills/orca-pod-setup/scripts/*.test.mjs test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "homepage": "https://github.com/Salesao/orca-pod#readme",
+  "bugs": {
+    "url": "https://github.com/Salesao/orca-pod/issues"
+  },
+  "keywords": [
+    "orca",
+    "onorca",
+    "agent-skills",
+    "claude-code",
+    "codex",
+    "pi",
+    "multi-agent"
+  ]
+}
