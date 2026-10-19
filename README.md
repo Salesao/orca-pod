@@ -44,7 +44,8 @@ you type its name, for example `/orca-pod`:
 ## Quick start
 
 **1. Install.** You need [Orca](https://www.onorca.dev) (the app that runs the agent terminals; its `orca` command must be on `PATH`),
-Node.js 18 or newer and git; [Requirements](#requirements) lists the rest.
+Node.js 18 or newer and git for the installer (your project does not have to be a Git repository);
+[Requirements](#requirements) lists the rest.
 
 ```bash
 npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi
@@ -143,7 +144,10 @@ Everyone needs:
   `orca skills installed`. Without the skill a run does not stop; the roles fall back to `orca --help`.
 - **Node.js 18 or newer** for the skills' scripts (built-ins only, no `npm install`), and `bash` for the small
   shell scripts that create links.
-- **git**, and a project that is a Git repository. orca-pod never runs `git init` in your project.
+- **git** for the installer: `npx skills` downloads this repository with it, and test mode keeps its sandbox in a
+  Git repository. Your project does not have to be one. Without Git the config and the reports live in the project
+  folder, and the review reads the changed files from the Implementer's list instead of a diff, so a change outside
+  that list goes unseen. orca-pod never runs `git init` in your project.
 - **The superpowers skills**, a separate set of planning skills: `using-superpowers`, `brainstorming` and
   `writing-plans`. The Planner uses them without exception, so install them for every agent that will run a Planner.
 - **At least one agent CLI** from the list below (the program you run in a terminal). Each role can use a different
@@ -157,9 +161,9 @@ Per agent:
 
 | Agent | What it needs |
 | --- | --- |
-| Claude Code | `claude` on `PATH`. The helper agents from `skills/orca-pod/agents/claude/` are linked into `~/.claude/agents/` by `orca-pod-setup`. |
-| Codex | `codex` on `PATH`. The `orca_*` helper agents are registered by the launcher, only inside each role's session. For roles to run `orca` inside the Codex sandbox you need the rule `prefix_rule(pattern=["orca"], decision="allow")` in `~/.codex/rules/default.rules`; `orca-pod-setup` offers to add it (it asks first). The rule is not needed when the profile uses `full_access`. |
-| Pi | `pi` on `PATH` and the package `npm:pi-subagents` at version 0.78.0. Do not combine it with `pi-interactive-subagents`: both provide the `subagent` tool and they conflict. `pi-lens` is recommended; the `lens-checker` helper and the Pi self-check use it. The Pi helpers `orca-worker`, `orca-reviewer`, `orca-scout`, `orca-oracle` and `orca-evidence-auditor` are linked by `orca-pod-setup`; they start without your Pi extensions, so pi-lens (and its `tsserver`) runs only in the role and in at most one helper. Give these helpers a model from a built-in or `models.json` provider: a model from a provider extension (for example pi-claude-bridge) does not load in them, and the role then runs the bundled helpers one at a time. |
+| Claude Code | `claude` on `PATH` or in a usual install folder (`~/.local/bin`, `~/.claude/local`, Homebrew, nvm and others). The helper agents from `skills/orca-pod/agents/claude/` are linked into `~/.claude/agents/` by `orca-pod-setup`. |
+| Codex | `codex` on `PATH` or in a usual install folder. The `orca_*` helper agents are registered by the launcher, only inside each role's session. For roles to run `orca` inside the Codex sandbox you need the rule `prefix_rule(pattern=["orca"], decision="allow")` in `~/.codex/rules/default.rules`; `orca-pod-setup` offers to add it (it asks first). The rule is not needed when the profile uses `full_access`. |
+| Pi | `pi` on `PATH` or in a usual install folder, Pi 0.73.1 or newer (both before and after Pi renamed its packages from `@mariozechner/*` to `@earendil-works/*` in 0.74), and the package `npm:pi-subagents` at version 0.78.0. Do not combine it with `pi-interactive-subagents`: both provide the `subagent` tool and they conflict. `pi-lens` is recommended; the `lens-checker` helper and the Pi self-check use it. The Pi helpers `orca-worker`, `orca-reviewer`, `orca-scout`, `orca-oracle` and `orca-evidence-auditor` are linked by `orca-pod-setup`; they start without your Pi extensions, so pi-lens (and its `tsserver`) runs only in the role and in at most one helper. Give these helpers a model from a built-in or `models.json` provider: a model from a provider extension (for example pi-claude-bridge) does not load in them, and the role then runs the bundled helpers one at a time. |
 
 orca-pod does not resume an interrupted run. If a run dies, start a new one: a new run is a new invocation
 of the skill.
@@ -246,7 +250,7 @@ description. What happens next:
    approval runs a [plan blitz](#plan-blitz): short rounds of multiple-choice questions. Answer them there.
 3. After approval the Implementer takes over, runs the waves, and sends stages to review. The run ends with a final
    status: `FINAL_APPROVED`, `SELF_VERIFIED` or `BLOCKED` (the review did not converge; you decide).
-4. Review and self-check reports are written to `<git root>/.orca-pod/reports/<planVersion>/`.
+4. Review and self-check reports are written to `<project root>/.orca-pod/reports/<planVersion>/`.
 
 The skill never creates worktrees, and git writes (commit, push, stash, reset, branch) happen only with your
 separate permission.
@@ -262,6 +266,11 @@ it says; your changes are written into the document, and the next round asks onl
 what is still open, new or changed. The last step is the approval itself: before it the Planner lists the decisions it
 made without asking, and the approval offers Approve, Read it in full first and, if there were questions, Back to a
 question.
+
+The blitz starts with a line that gives the document's path, so you can open it and check any card against it, and
+the path comes back at the approval. After each round the document gets a line in its blitz log, so you can see
+which version each round asked about. When there is no real choice, the blitz says so in one line before the
+approval.
 
 You can also run `plan-blitz` yourself on any spec or plan, for example after superpowers brainstorming or
 writing-plans:
@@ -331,7 +340,8 @@ Codex and Claude Code roles ask for permission in their own terminals; answer th
 ## Configuration
 
 One file per repository: `<main checkout>/.orca-pod/orca-pod.yaml`. A linked worktree may have its own file in its
-own `.orca-pod/`, and that one wins. The folder is added to `.gitignore` when the project has one (setup never
+own `.orca-pod/`, and that one wins. Outside Git the file is `<project folder>/.orca-pod/orca-pod.yaml`: the folder
+where you start the agent, or its nearest parent that already has `.orca-pod/`. The folder is added to `.gitignore` when the project has one (setup never
 creates a `.gitignore`); without one, add `.orca-pod/` yourself before committing. The old layouts,
 the `.orca-pipeline/` directory (with `orca-pipeline.yaml` and `reports/`) and `orca-pipeline.yaml` in the project
 root, are migrated into `.orca-pod/` automatically, and each moved path is reported to you.
@@ -401,6 +411,12 @@ node ~/.agents/skills/orca-pod/scripts/launch-provider.mjs --profiles
   `~/.codex/rules/default.rules` yourself, or approve the elevated-privilege retry Codex asks for. Do not work
   around the sandbox in any other way.
 - **`orca-pod skill not found`.** Only one of the two skills is installed. Install both (see Install).
+- **The setup form offers no models for an agent.** Each `CATALOG` line of the setup names the reason. `not found`:
+  install the agent's CLI or put its folder on `PATH`; setup also looks in the usual install folders, and
+  `ORCA_POD_BIN_DIRS` replaces that list. `no write access (sandbox?)`: in Codex, run the setup again and allow the
+  elevated permissions it asks for; Pi writes lock files in `~/.pi/agent` even to list its models.
+- **Pi says `Cannot find module '@earendil-works/pi-ai'`.** The extension of orca-pod 0.1.0 needed Pi 0.74 or
+  newer. Install the skills again (see Install) and run `/reload` in Pi, or update Pi with `pi update --self`.
 - **`PIPELINE CONFIG REJECTED`.** The message names the file and the exact field. Fix it with `orca-pod-setup`.
 - **The `orca_pod_setup` or `orca_pod_ask` tool is missing in Pi.** Run `/reload` in Pi after setup has linked the extension; without `orca_pod_ask` the blitz asks in numbered text.
 - **Many `tsserver` processes in Pi.** Each helper that loads your Pi extensions starts its own pi-lens `tsserver`.
