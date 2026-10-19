@@ -2,7 +2,7 @@
 # Connects the form extension for Pi (the orca_pod_setup tool):
 #   <skill>/pi-extension -> ~/.pi/agent/extensions/orca-pod-setup
 # Idempotent. An existing directory or a link that is not ours is not replaced — prints SKIP.
-# Does nothing without pi in PATH.
+# Does nothing when Pi is not installed: no pi in PATH and no ~/.pi/agent (the agent's shell may lack pi in PATH).
 set -euo pipefail
 
 skill_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -14,8 +14,8 @@ if [ ! -f "$source_dir/index.js" ]; then
   exit 0
 fi
 
-if ! command -v pi >/dev/null 2>&1; then
-  echo "SKIP  pi not found in PATH, the form extension is not linked"
+if ! command -v pi >/dev/null 2>&1 && [ ! -d "$HOME/.pi/agent" ]; then
+  echo "SKIP  pi not found (no pi in PATH, no ~/.pi/agent), the form extension is not linked"
   exit 0
 fi
 

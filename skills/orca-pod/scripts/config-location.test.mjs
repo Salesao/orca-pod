@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
-import { activeConfigPath, configLocation, gitLocation, migrateLegacyConfig, migrationLine, migrationText } from "./config-location.mjs";
+import { activeConfigPath, configLocation, gitLocation, migrateLegacyConfig, migrationLine, migrationText, plainFolderRoot, projectLocation } from "./config-location.mjs";
 
 const YAML = "active_profile: default\n";
 
@@ -355,4 +355,61 @@ test("CLI also works through a symlink to the skill directory (~/.claude/skills)
   const result = spawnSync(process.execPath, [path.join(linkedScripts, "config-location.mjs"), "where", "--cwd", root], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).mainRoot, root);
+}));
+
+/** Runs run(root) with Git discovery stopped at root: the temp folder is never taken for part of a repository. */
+function withoutGit(run) {
+  return withTemp((root) => {
+    const previous = process.env.GIT_CEILING_DIRECTORIES;
+    process.env.GIT_CEILING_DIRECTORIES = root;
+    try {
+      return run(root);
+    } finally {
+      if (previous === undefined) delete process.env.GIT_CEILING_DIRECTORIES;
+      else process.env.GIT_CEILING_DIRECTORIES = previous;
+    }
+  });
+}
+
+test("projectLocation outside Git: the current folder is the project, git false, the config is <folder>/.orca-pod/orca-pod.yaml", () => withoutGit((root) => {
+  const project = path.join(root, "project");
+  mkdirSync(project);
+  const location = configLocation(projectLocation(project, { home: root }));
+  assert.equal(location.git, false);
+  assert.equal(location.worktreeRoot, project);
+  assert.equal(location.mainRoot, project);
+  assert.equal(location.activePath, path.join(project, ".orca-pod", "orca-pod.yaml"));
+  assert.deepEqual(location.legacyDirs, [path.join(project, ".orca-pipeline")]);
+}));
+
+test("projectLocation inside Git: git true and the repository root, also from a subfolder", () => withTemp((root) => {
+  spawnSync("git", ["-C", root, "init", "-q"]);
+  mkdirSync(path.join(root, "src"));
+  const location = configLocation(projectLocation(path.join(root, "src")));
+  assert.equal(location.git, true);
+  assert.equal(location.worktreeRoot, root);
+}));
+
+test("plainFolderRoot: a subfolder finds the nearest parent with .orca-pod/", () => withTemp((root) => {
+  const project = path.join(root, "home", "project");
+  mkdirSync(path.join(project, ".orca-pod"), { recursive: true });
+  mkdirSync(path.join(project, "src", "deep"), { recursive: true });
+  assert.equal(plainFolderRoot(path.join(project, "src", "deep"), path.join(root, "home")), project);
+}));
+
+test("plainFolderRoot: the home folder's .orca-pod/ does not make home the project, unless the agent runs in home itself", () => withTemp((root) => {
+  const home = path.join(root, "home");
+  mkdirSync(path.join(home, ".orca-pod"), { recursive: true });
+  mkdirSync(path.join(home, "notes"));
+  assert.equal(plainFolderRoot(path.join(home, "notes"), home), path.join(home, "notes"));
+  assert.equal(plainFolderRoot(home, home), home);
+}));
+
+test("CLI where outside Git: git false, the folder from --cwd", () => withoutGit((root) => {
+  const cli = new URL("./config-location.mjs", import.meta.url).pathname;
+  const result = spawnSync(process.execPath, [cli, "where", "--cwd", root], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const location = JSON.parse(result.stdout);
+  assert.equal(location.git, false);
+  assert.equal(location.activePath, path.join(root, ".orca-pod", "orca-pod.yaml"));
 }));

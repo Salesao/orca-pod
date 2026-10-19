@@ -2,7 +2,7 @@
 
 <h1 align="center"><img src="../../assets/skill-orca-pod-setup.svg" alt="orca-pod-setup"></h1>
 
-This skill creates and changes `.orca-pod/orca-pod.yaml`, the settings file that [orca-pod](../orca-pod/README.md) reads before every run. The file holds profiles: named sets of settings. For each role of orca-pod, a profile says which agent (Pi, Claude Code or Codex), model and thinking level the role uses, which helper subagents it can start and how many subagents it runs at once. There is one file per Git repository, in the main checkout (a linked worktree may have its own). The `.orca-pod/` folder is added to `.gitignore` when the project has one, see step 7; without a `.gitignore`, add it yourself so that the file does not go into git. The old `.orca-pipeline/` (with `orca-pipeline.yaml` and `reports/`) and the `orca-pipeline.yaml` from the project root are moved into `.orca-pod/` automatically.
+This skill creates and changes `.orca-pod/orca-pod.yaml`, the settings file that [orca-pod](../orca-pod/README.md) reads before every run. The file holds profiles: named sets of settings. For each role of orca-pod, a profile says which agent (Pi, Claude Code or Codex), model and thinking level the role uses, which helper subagents it can start and how many subagents it runs at once. There is one file per Git repository, in the main checkout (a linked worktree may have its own); a project without Git gets one in its folder. The `.orca-pod/` folder is added to `.gitignore` when the project has one, see step 7; without a `.gitignore`, add it yourself so that the file does not go into git. The old `.orca-pipeline/` (with `orca-pipeline.yaml` and `reports/`) and the `orca-pipeline.yaml` from the project root are moved into `.orca-pod/` automatically.
 
 | Agent | Command |
 | --- | --- |
@@ -27,17 +27,17 @@ The skill solves this with a visual form in the browser. The form takes the mode
 
 ## What it does
 
-1. Determines the root of the Git repository. Does not create a new repository.
+1. Determines the project folder: the root of the Git repository, or, outside Git, the folder where you start the agent (or its nearest parent that already has `.orca-pod/`). Does not create a repository.
 2. Connects the components that do not lie in the skill's folder. Both scripts are idempotent; they do not replace existing regular files or other people's live links and write `SKIP` instead; `link-agents.sh` replaces a dangling link (`RELINK`).
    - `orca-pod/scripts/link-agents.sh` links the helper agents to the Claude Code and Pi directories. A dangling link left by a removed skill version is replaced with ours (`RELINK`); a live link into another installed version stays (`SKIP`).
-   - `scripts/link-pi-extension.sh` points `~/.pi/agent/extensions/orca-pod-setup` at the `pi-extension/` of this skill. Without Pi in `PATH` it does nothing. The extension also gives Pi the `orca_pod_ask` question window that the plan-blitz skill uses.
+   - `scripts/link-pi-extension.sh` points `~/.pi/agent/extensions/orca-pod-setup` at the `pi-extension/` of this skill. When Pi is not installed (no `pi` in `PATH` and no `~/.pi/agent`) it does nothing. The extension works with Pi before and after its 0.74 package rename (`@mariozechner/*` → `@earendil-works/*`). The extension also gives Pi the `orca_pod_ask` question window that the plan-blitz skill uses.
 3. Opens the setup form.
    - In Pi it is the `orca_pod_setup` tool; it opens the form in the browser.
-   - In Claude Code (and Codex) it is `scripts/setup-form.mjs`, which also prints the form address as `FORM URL:` (open it by hand if the browser does not); Claude Code runs it in the background. Codex runs it as an ordinary command and waits for it.
+   - In Claude Code (and Codex) it is `scripts/setup-form.mjs`, which also prints the form address as `FORM URL:` (open it by hand if the browser does not); Claude Code runs it in the background. Codex runs it as an ordinary command and waits for it, with elevated permissions (it asks you once): inside the Codex sandbox the form cannot open its local port and Pi cannot list its models.
 4. Saves the whole `orca-pod.yaml` with all the profiles from the form. Before writing it checks whether the file has changed and shows "was → now". It does not write secrets into the file.
 5. Checks the result with `launch-provider.mjs --profiles` and for each profile reports the roles, the review mode (`full`, `reviewer`, `chief` or `self`) and the subagent limit.
 6. Asks whether to add the Codex rule. If a profile without `full_access` has a Codex role and the rule is missing, the skill asks once whether to allow all `orca` commands in Codex without confirmation. Only after you answer "yes" does it add the line `prefix_rule(pattern=["orca"], decision="allow")` to `~/.codex/rules/default.rules`. With "no" the Codex roles will ask for confirmation of `orca` commands.
-7. Adds `.orca-pod/` to the project's `.gitignore` (`scripts/ensure-gitignore.sh`). The pipeline writes the review reports there. The script changes only an existing `.gitignore`: if there is none, it does not create it, and if the folder is already ignored, it changes nothing.
+7. Adds `.orca-pod/` to the project's `.gitignore` (`scripts/ensure-gitignore.sh`; skipped without Git). The pipeline writes the review reports there. The script changes only an existing `.gitignore`: if there is none, it does not create it, and if the folder is already ignored, it changes nothing.
 
 How the form is organised:
 
@@ -49,20 +49,20 @@ How the form is organised:
 ## What it does not do
 
 - Does not start roles, the agent CLIs or helper subagents.
-- Does not check that you are logged in to an agent or that you can use a model. `--resolve` checks that the CLI is on PATH and, for Codex roles, that the model and thinking are in the Codex catalog.
+- Does not check that you are logged in to an agent or that you can use a model. `--resolve` checks that the CLI is on PATH or in the usual install folders and, for Codex roles, that the model and thinking are in the Codex catalog.
 - Does not choose additional skills for the roles. The Coordinator (the orca-pod session that starts a run) does that (`references/skill-selection.md`).
 - Does not choose the profile for a run. The `orca-pod` Coordinator does that, and the choice is not written to the file.
 
 ## Requirements
 
-- A project Git repository.
+- A project folder; Git is optional.
 - The `orca-pod` skill installed next to this one: without it the setup stops with a message.
 - For the form in Pi: the extension from the `pi-extension/` of this skill. It is connected by the script `scripts/link-pi-extension.sh` (the skill runs it itself at step 2). After it is connected, run `/reload` in Pi.
 - For the model catalogs:
   - Pi: the command `pi --list-models`;
   - Claude Code: `claude` in `PATH`;
   - Codex: `codex` in `PATH` (`codex debug models`).
-  If an agent is unavailable, it simply does not appear in the list.
+  An agent's CLI that is not in `PATH` is also looked for in the usual install folders (`~/.local/bin`, `~/.claude/local`, the folder of the running `node`, nvm, Volta, Bun, pnpm, Homebrew); `ORCA_POD_BIN_DIRS` replaces that list. If an agent is unavailable, it simply does not appear in the list, and its `CATALOG` line says why.
 - For Codex roles in a profile without `full_access`: the rule `prefix_rule(pattern=["orca"], decision="allow")` in `~/.codex/rules/default.rules` (the skill offers to add it, see step 6; it is not needed with `full_access`).
 - Node.js for the form scripts and the catalogs.
 - A browser for the form.
@@ -117,7 +117,7 @@ node <skill-dir>/../orca-pod/scripts/launch-provider.mjs --role planner --resolv
 - `--profiles` checks every profile and prints their list with a one-line summary.
 - `--roles` checks a profile (`active_profile` by default, another one with `--profile <name>`) and prints the configured roles, `reviewMode` and `maxSubagents`.
 - `--role <role> --validate` checks the schema of one role.
-- `--role <role> --resolve` additionally checks that the CLI is on PATH and, for Codex roles, that the model and thinking are in the Codex catalog (an unavailable catalog adds an entry to the `warnings` array of the JSON output; the `PIPELINE CONFIG WARNING:` lines on stderr appear only when a role is launched). It does not check authorization or access to the model.
+- `--role <role> --resolve` additionally checks that the CLI is on PATH or in the usual install folders and, for Codex roles, that the model and thinking are in the Codex catalog (an unavailable catalog adds an entry to the `warnings` array of the JSON output; the `PIPELINE CONFIG WARNING:` lines on stderr appear only when a role is launched). It does not check authorization or access to the model.
 
 `--validate` and `--resolve` are not combined; `--profile` works with all the modes except `--profiles`.
 

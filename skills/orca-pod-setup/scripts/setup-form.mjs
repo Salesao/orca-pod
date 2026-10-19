@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Standalone runner of the orca-pod setup form for agents without the Pi tool
-// (Claude Code). Collects model catalogs of the enabled agents (Pi via `pi --list-models`,
-// Claude Code), opens the same browser form, waits for Submit/Cancel/timeout and prints exactly
+// (Claude Code, Codex). Collects model catalogs of the enabled agents (Pi via `pi --list-models`,
+// Claude Code, Codex), opens the same browser form, waits for Submit/Cancel/timeout and prints exactly
 // one JSON result line to stdout. Diagnostics, catalog sources and the URL go to stderr.
 // Does not write orca-pod.yaml: the agent saves it by the orca-pod-setup skill.
 
@@ -21,7 +21,7 @@ let discoverCatalogs;
 let ENABLED_PROGRAMS;
 let KNOWN_PROGRAMS;
 let configLocation;
-let gitLocation;
+let projectLocation;
 let migrateLegacyConfig;
 let migrationText;
 
@@ -33,7 +33,7 @@ async function loadSiblingModules(pipelineSkill) {
   ]);
   ({ startPipelineForm } = form);
   ({ discoverCatalogs, ENABLED_PROGRAMS, KNOWN_PROGRAMS } = catalogs);
-  ({ configLocation, gitLocation, migrateLegacyConfig, migrationText } = location);
+  ({ configLocation, projectLocation, migrateLegacyConfig, migrationText } = location);
 }
 
 function parseArgs(argv) {
@@ -50,11 +50,6 @@ function parseArgs(argv) {
   const unknown = options.programs.filter((p) => !KNOWN_PROGRAMS.includes(p));
   if (unknown.length) throw new Error('--programs: unknown ' + unknown.join(', '));
   return options;
-}
-
-function locate() {
-  try { return configLocation(gitLocation(process.cwd())); }
-  catch { throw new Error('Open a Git project folder before configuring the pipeline'); }
 }
 
 async function readExistingConfig(file) {
@@ -81,6 +76,7 @@ const controller = new AbortController();
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => controller.abort());
 
 let targetPath = '';
+let git;
 let sourceHash = null;
 let migration = null;
 const setupSkillDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -93,7 +89,10 @@ try {
   }
   await loadSiblingModules(pipelineSkill);
   const options = parseArgs(process.argv.slice(2));
-  const location = locate();
+  // Git is optional: outside a repository the config goes into the current folder (or its nearest parent with .orca-pod/).
+  const location = configLocation(projectLocation(process.cwd()));
+  git = location.git;
+  if (!location.git) console.error('PROJECT ' + location.worktreeRoot + ' (not a Git repository: the config goes into this folder)');
   // The old .orca-pipeline/ and orca-pipeline.yaml move into .orca-pod/ before the config is read.
   migration = migrationText(migrateLegacyConfig(location));
   if (migration) for (const line of migration.split('\n')) console.error('MIGRATION ' + line);
@@ -112,8 +111,12 @@ try {
   const outcome = await form.result;
   form.close();
   // No process.exit: let the accepted Submit/Cancel response flush; the closed server ends the loop.
-  console.log(JSON.stringify({ ...outcome, targetPath, sourceHash, migration, sources }));
+  console.log(JSON.stringify({ ...outcome, targetPath, git, sourceHash, migration, sources }));
 } catch (error) {
-  console.log(JSON.stringify({ status: 'error', targetPath, sourceHash, migration, url: '', error: error.message || String(error) }));
+  // The Codex sandbox does not let the form open its local port.
+  const message = error.syscall === 'listen' && ['EPERM', 'EACCES'].includes(error.code)
+    ? 'The form cannot open a local port (' + error.message + '); in a sandbox, run setup-form.mjs with elevated permissions'
+    : error.message || String(error);
+  console.log(JSON.stringify({ status: 'error', targetPath, git, sourceHash, migration, url: '', error: message }));
   process.exitCode = error.exitCode ?? 1;
 }

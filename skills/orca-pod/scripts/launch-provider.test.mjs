@@ -54,7 +54,8 @@ function runLauncher(templateYaml, { role = "implementer", shouldResolve = true,
         : ["--role", role, ...(shouldResolve ? ["--resolve"] : []), ...(shouldValidate ? ["--validate"] : [])];
     return spawnSync(process.execPath, [LAUNCHER_PATH, ...modeArguments, ...(profileName === null ? [] : ["--profile", profileName])], {
       cwd: fixtureRoot,
-      env: { ...process.env, PATH: executableDirectory, CODEX_HOME: codexHome, ...env },
+      // An empty ORCA_POD_BIN_DIRS: the providers are looked up only in the fakes directory, not in the usual install folders.
+      env: { ...process.env, PATH: executableDirectory, CODEX_HOME: codexHome, ORCA_POD_BIN_DIRS: "", ...env },
       encoding: "utf8",
     });
   } finally {
@@ -255,7 +256,24 @@ test("File validation works without installed providers and does not start a CLI
 test("Resolve still requires an installed provider CLI", () => {
   const launcherResult = runLauncher(TEMPLATE_YAML, { hasProviderExecutables: false });
   assert.equal(launcherResult.status, 2);
-  assert.match(launcherResult.stderr, /not available on PATH/);
+  assert.match(launcherResult.stderr, /not available on PATH or in the usual install folders/);
+});
+
+test("a provider CLI outside PATH but in a usual install folder: resolved with a warning and launched by its absolute path", () => {
+  const folder = mkdtempSync(path.join(tmpdir(), "orca-launcher-bin-"));
+  try {
+    for (const name of ["pi", "codex", "claude", "omp"]) writeFileSync(path.join(folder, name), '#!/bin/sh\nprintf "%s\\n" "$0" "$@"\n', { mode: 0o755 });
+    const resolved = runLauncher(TEMPLATE_YAML, { hasProviderExecutables: false, env: { ORCA_POD_BIN_DIRS: folder } });
+    assert.equal(resolved.status, 0, resolved.stderr);
+    const settings = JSON.parse(resolved.stdout);
+    assert.deepEqual(settings.warnings, [`${settings.provider === "claude-code" ? "claude" : settings.provider} is not on PATH; using ${path.join(folder, settings.provider === "claude-code" ? "claude" : settings.provider)}`]);
+    const launched = runLauncher(TEMPLATE_YAML, { shouldResolve: false, hasProviderExecutables: false, env: { ORCA_POD_BIN_DIRS: folder } });
+    assert.equal(launched.status, 0, launched.stderr);
+    assert.ok(launched.stdout.startsWith(folder + path.sep), launched.stdout);
+    assert.match(launched.stderr, /^PIPELINE CONFIG WARNING: .* is not on PATH; using /m);
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
 });
 
 test("Validate rejects invalid settings", () => {

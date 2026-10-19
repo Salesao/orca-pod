@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { configLocation, gitLocation } from "./config-location.mjs";
+import { configLocation, projectLocation } from "./config-location.mjs";
+import { displayPath, envFor, findExecutable } from "./find-executable.mjs";
 import { assertCodexRole, listProfiles, parsePipelineYaml, PipelineConfigError, resolveProfile, ROLE_KEYS } from "./pipeline-config.mjs";
 import { readCodexCatalog } from "./codex-models.mjs";
 import { providerCommand } from "./provider-command.mjs";
@@ -20,7 +21,7 @@ const MIGRATE_SCRIPT = path.join(SKILL_DIR, "scripts", "config-location.mjs");
 
 function locate() {
   try {
-    return configLocation(gitLocation(process.cwd()));
+    return configLocation(projectLocation(process.cwd()));
   } catch (error) {
     fail(error.message);
   }
@@ -72,17 +73,6 @@ function listRoles(requestedProfileName = null) {
   };
 }
 
-function executableOnPath(command) {
-  return (process.env.PATH ?? "").split(path.delimiter).some((directory) => {
-    try {
-      const file = path.join(directory, command);
-      return statSync(file).isFile() && (statSync(file).mode & 0o111) !== 0;
-    } catch {
-      return false;
-    }
-  });
-}
-
 function optionsFrom(argv) {
   const options = { resolve: false, shouldValidate: false, listRoles: false, listProfiles: false, role: null, profileName: null };
   for (let index = 0; index < argv.length; index += 1) {
@@ -123,11 +113,14 @@ try {
   }
   const settings = resolveRole(options.role, options.profileName);
   const [command, ...args] = providerCommand(settings, { role: settings.role, maxSubagents: settings.maxSubagents, skillDir: SKILL_DIR, fullAccess: settings.fullAccess });
-  if (!options.shouldValidate && !executableOnPath(command)) fail(`provider executable ${JSON.stringify(command)} is not available on PATH`);
   settings.warnings = [];
+  // PATH first, then the usual install folders; a CLI found only there is started by its absolute path.
+  const executable = options.shouldValidate ? null : findExecutable(command);
+  if (!options.shouldValidate && !executable) fail(`provider executable ${JSON.stringify(command)} is not available on PATH or in the usual install folders`);
+  if (executable && !executable.onPath) settings.warnings.push(`${command} is not on PATH; using ${displayPath(executable.file)}`);
   // The model and effort of a Codex role are checked against the Codex catalog; --validate stays a schema check without the CLI.
   if (!options.shouldValidate && settings.provider === "codex") {
-    const catalog = readCodexCatalog();
+    const catalog = readCodexCatalog({ command: executable.file, env: envFor(executable) });
     if (catalog.models.length) settings.warnings.push(...assertCodexRole(settings.role, settings, catalog.models, { isAuthoritative: catalog.authoritative, source: catalog.source }));
     else settings.warnings.push(`Codex: catalog unavailable — model and effort are not checked (${catalog.source})`);
   }
@@ -136,7 +129,7 @@ try {
     console.log(JSON.stringify(settings));
   } else {
     for (const warning of settings.warnings) console.error(`PIPELINE CONFIG WARNING: ${warning}`);
-    const result = spawnSync(command, args, { stdio: "inherit" });
+    const result = spawnSync(executable.file, args, { stdio: "inherit", env: envFor(executable) });
     if (result.error) throw result.error;
     process.exit(result.status ?? 1);
   }

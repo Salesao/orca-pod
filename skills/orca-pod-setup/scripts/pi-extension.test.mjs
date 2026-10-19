@@ -12,15 +12,17 @@ const SETUP_SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 const PIPELINE_SKILL_DIR = path.resolve(SETUP_SKILL_DIR, "..", "orca-pod");
 
 const write = (file, text) => { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, text); };
+// An empty ORCA_POD_BIN_DIRS: claude and codex are looked up only in the test's PATH, never in this machine's install folders.
+process.env.ORCA_POD_BIN_DIRS = "";
 
 /** A skills/ layout in a temp dir: a copy of the extension (so the stubs below are found), real scripts and the real sibling skill. */
-function installExtension(root) {
+function installExtension(root, scope) {
   const skills = path.join(root, "skills");
   const setup = path.join(skills, "orca-pod-setup");
   cpSync(path.join(SETUP_SKILL_DIR, "pi-extension"), path.join(setup, "pi-extension"), { recursive: true });
   symlinkSync(path.join(SETUP_SKILL_DIR, "scripts"), path.join(setup, "scripts"));
   symlinkSync(PIPELINE_SKILL_DIR, path.join(skills, "orca-pod"));
-  const stubs = path.join(setup, "node_modules", "@earendil-works");
+  const stubs = path.join(setup, "node_modules", scope);
   const manifest = JSON.stringify({ type: "module", exports: "./index.js" });
   write(path.join(stubs, "pi-ai", "package.json"), manifest);
   write(path.join(stubs, "pi-ai", "index.js"),
@@ -40,11 +42,12 @@ function installExtension(root) {
 }
 
 /** Runs run({ tool, tools, ctx, project, root }) with the extension registered (tool = orca_pod_setup); PATH holds only git (no claude/codex catalogs). */
-async function withExtension(run, { git = true, execCode = 0, registryError = null } = {}) {
+// scope: the npm scope of Pi's packages — @earendil-works since Pi 0.74, @mariozechner before it.
+async function withExtension(run, { git = true, execCode = 0, registryError = null, scope = "@earendil-works" } = {}) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "orca-pi-ext-test-")));
   const previous = { PATH: process.env.PATH, ceiling: process.env.GIT_CEILING_DIRECTORIES };
   try {
-    const moduleUrl = installExtension(root);
+    const moduleUrl = installExtension(root, scope);
     const bin = path.join(root, "bin");
     mkdirSync(bin);
     symlinkSync(spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim(), path.join(bin, "git"));
@@ -60,7 +63,7 @@ async function withExtension(run, { git = true, execCode = 0, registryError = nu
       registerTool(tool) { this.tools[tool.name] = tool; },
       exec: async () => ({ code: execCode, killed: false }),
     };
-    (await import(moduleUrl)).default(pi);
+    await (await import(moduleUrl)).default(pi);
     const ctx = {
       cwd: project,
       modelRegistry: {
@@ -106,7 +109,7 @@ test("the tool is registered as orca_pod_setup with an English prompt snippet an
   assert.equal(tool.promptSnippet, "Configure orca-pod.yaml through the browser form; the answer returns directly to the agent.");
   assert.equal(tool.description,
     "Open the existing Orca pipeline configuration form in a browser. “Generate YAML” returns the chosen settings and YAML directly to this tool call, like pi-interview. " +
-    "No shell server, polling, sleep or result files. Resolve the current Git root and prefill the active orca-pod.yaml (the linked worktree’s own file if there is one, otherwise the shared one). " +
+    "No shell server, polling, sleep or result files. Resolve the project folder (the Git root; outside Git the current folder) and prefill the active orca-pod.yaml (the linked worktree’s own file if there is one, otherwise the shared one). " +
     "Does not write that file or launch pipeline roles. After submitted, follow the orca-pod-setup skill to save the config and validate it. Cancellation must not generate default settings.");
 }));
 
@@ -180,16 +183,13 @@ test("the browser cannot be opened: the update says so in English and repeats th
   await result;
 }, { execCode: 1 }));
 
-test("errors thrown to the agent are English: second form, no Git project, broken models.json", async () => {
+test("errors thrown to the agent are English: second form, broken models.json", async () => {
   await withExtension(async ({ tool, ctx }) => {
     const first = await startTool(tool, ctx);
     await assert.rejects(tool.execute("call-2", { no_open: true }, undefined, () => {}, ctx), { message: "A pipeline setup form is already open in this session" });
     await post(first.url, "/cancel", {});
     await first.result;
   });
-  await withExtension(async ({ tool, ctx }) => {
-    await assert.rejects(tool.execute("call-1", { no_open: true }, undefined, () => {}, ctx), { message: "Open a Git project folder before configuring the pipeline" });
-  }, { git: false });
   await withExtension(async ({ tool, ctx }) => {
     await assert.rejects(tool.execute("call-1", { no_open: true }, undefined, () => {}, ctx), { message: "Pi could not load the model settings; check models.json" });
   }, { registryError: new Error("bad json") });
@@ -231,3 +231,28 @@ test("orca_pod_ask: a session_shutdown while the window is open ends the call as
   const result = await pending;
   assert.equal(result.content[0].text, "The questions were interrupted before an answer. Do not treat anything as approved.");
 }));
+
+test("outside a Git repository the form opens for the current folder; the submitted result says so", () => withExtension(async ({ tool, ctx, project }) => {
+  const { result, url } = await startTool(tool, ctx);
+  assert.equal((await post(url, "/generate", submission())).status, 200);
+  const outcome = await result;
+  assert.equal(outcome.details.git, false);
+  assert.equal(outcome.details.targetPath, path.join(project, ".orca-pod", "orca-pod.yaml"));
+  assert.match(outcome.content[0].text, /^Not a Git repository: the config goes into this folder; tell the user the path in one line\.$/m);
+}, { git: false }));
+
+// A user's Pi 0.73.1 failed to load the extension: "Cannot find module '@earendil-works/pi-ai'". Pi before 0.74 has only
+// the @mariozechner/* packages and its extension context has hasUI but no mode.
+test("Pi before 0.74 (@mariozechner/* packages, no ctx.mode): both tools register, the form opens, the question window uses hasUI", () => withExtension(async ({ tools, ctx }) => {
+  assert.deepEqual(Object.keys(tools).sort(), ["orca_pod_ask", "orca_pod_setup"]);
+  const { result, url } = await startTool(tools.orca_pod_setup, ctx);
+  await post(url, "/cancel", {});
+  assert.equal((await result).details.status, "cancelled");
+  const { mode, ...oldCtx } = ctx;
+  const noUi = await tools.orca_pod_ask.execute("call-1", ASK, undefined, () => {}, { ...oldCtx, hasUI: false });
+  assert.equal(noUi.content[0].text, "No interactive terminal UI (mode without UI). Ask the same questions as numbered text instead.");
+  const answers = [{ header: "1 Map", kind: "option", label: "Keep" }];
+  const ui = { custom: () => Promise.resolve({ answers, cancelled: false }) };
+  const answered = await tools.orca_pod_ask.execute("call-2", ASK, undefined, () => {}, { ...oldCtx, hasUI: true, ui });
+  assert.equal(answered.content[0].text, '1 Map: selected "Keep"');
+}, { scope: "@mariozechner" }));

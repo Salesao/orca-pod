@@ -18,18 +18,21 @@ the Planner always uses `using-superpowers` and `plan-blitz`. These are not YAML
 
 There is one config per repository: `.orca-pod/orca-pod.yaml` of the main checkout
 (the folder is added to `.gitignore` in step 4 when the project has one); in a linked worktree its own file in
-`.orca-pod/` wins, if there is one. The form (the Pi tool and `setup-form.mjs`) finds
+`.orca-pod/` wins, if there is one. Git is optional: outside a Git repository the project folder is the current
+folder, or its nearest parent that already has `.orca-pod/` (but not the home folder). The form (the Pi tool and `setup-form.mjs`) finds
 the active path itself — `targetPath` in the result — and before reading it migrates
 the old layouts: the `.orca-pipeline/` directory (with `orca-pipeline.yaml` and `reports/`) entirely
 into `.orca-pod/` (inside it `orca-pipeline.yaml` becomes `orca-pod.yaml`) and the file
-`<git-root>/orca-pipeline.yaml` into `.orca-pod/orca-pod.yaml`. The `migration` field holds
+`<project-root>/orca-pipeline.yaml` into `.orca-pod/orca-pod.yaml`. The `migration` field holds
 `MOVED …`, `IGNORED …` and `SKIP …` lines separated by newlines (one per result) or
 `null`. Report a non-empty `migration` to the user whatever the outcome of the form, one
 line per result; if the old file or directory was tracked by git, say that git will show
 it as deleted and that the commit is up to the user. Outside the form the path comes from
 `node <skill-dir>/../orca-pod/scripts/config-location.mjs where`
-(`activePath`); the migration is done by the same script with `migrate`.
-If there is no Git root, ask the user to open the right project; do not run `git init`.
+(`activePath`, and `git: false` outside a Git repository); the migration is done by the same script with `migrate`.
+Outside a Git repository tell the user in one line which folder the config goes into (the form prints it as a
+`PROJECT …` line and returns `git: false`); if it is not the project, ask them to start the agent in the right
+folder. Never run `git init`.
 If there is a directory or a link at the target path, explain the problem; do not replace it.
 Read an existing file before changing anything.
 
@@ -40,6 +43,10 @@ Run (idempotent, does not replace existing regular files or live links of others
 ```bash
 <skill-dir>/../orca-pod/scripts/link-agents.sh
 ```
+
+In Codex run this script, `link-pi-extension.sh` below and `setup-form.mjs` (step 3) with elevated permissions
+from the first call (Codex asks the user once per command): the link scripts write into `~/.claude` and `~/.pi`,
+outside the project, so in the sandbox they fail with `Operation not permitted`.
 
 It links `agents/claude/*.md` → `~/.claude/agents/` and `agents/pi/*.md`
 (lens-checker, verifier and the `orca-*` helpers) → `~/.pi/agent/agents/`. Show the `SKIP` and `RELINK` lines to the
@@ -56,7 +63,7 @@ bundled pi-subagents agent. The Codex agents (`agents/codex/*.toml`, names
 `orca_*`) are not linked: the launcher registers them when it starts a role, only in that
 role's session.
 
-Then connect the Pi extension (idempotent; does nothing without `pi` in PATH). It gives Pi two
+Then connect the Pi extension (idempotent; does nothing when Pi is not installed: no `pi` in PATH and no `~/.pi/agent`). It gives Pi two
 tools: `orca_pod_setup` (this form) and `orca_pod_ask` (the question window of the plan-blitz skill,
 which the orca-pod Planner runs before every approval):
 
@@ -66,7 +73,8 @@ which the orca-pod Planner runs before every approval):
 
 It points `~/.pi/agent/extensions/orca-pod-setup` at `<skill-dir>/pi-extension`
 and does not replace an existing directory or a link that is not ours (a `SKIP` line — show it to the
-user). A `LINK` line means that the extension has just been connected: Pi
+user). The extension works with Pi before and after 0.74, when Pi renamed its packages from `@mariozechner/*` to
+`@earendil-works/*`: it loads each package by the new name and falls back to the old one. A `LINK` line means that the extension has just been connected: Pi
 needs `/reload`, and only then call `orca_pod_setup`. A `STALE` line means that an old
 copy of the extension lies there instead of a link, and the form in Pi does not work with it: show the
 user the fix command from the output and do not call the tool until `/reload`.
@@ -104,8 +112,13 @@ thinking, `use_subagents` and the helper subagents with `inherit`. The model cat
 | Agent | Source of models | Thinking levels |
 | --- | --- | --- |
 | Pi | in Pi, the registry of the current session; outside Pi, `pi --list-models` (the same synchronized catalog, including providers added by extensions such as claude-bridge) | `getSupportedThinkingLevels` over the objects of the RPC `get_available_models`; if the RPC is unavailable, the levels are approximate |
-| Claude Code | the aliases `opus`/`sonnet`/`haiku`/`fable` (the latest version of the family) and specific versions (`claude-opus-5-5`, `claude-opus-4-8`, …) from the Anthropic catalog synchronized in Pi — the same one claude-bridge uses (if `claude` is in PATH; without Pi, only the aliases) | the model's effort from the same catalog (`low..max`) |
-| Codex | `codex debug models` — the models visible in the Codex picker (if `codex` is in PATH); the fallback source is `~/.codex/models_cache.json` | the model's reasoning effort (`supported_reasoning_levels`, for example `low..ultra`) |
+| Claude Code | the aliases `opus`/`sonnet`/`haiku`/`fable` (the latest version of the family) and specific versions (`claude-opus-5-5`, `claude-opus-4-8`, …) from the Anthropic catalog synchronized in Pi — the same one claude-bridge uses (if `claude` is found; without Pi, only the aliases) | the model's effort from the same catalog (`low..max`) |
+| Codex | `codex debug models` — the models visible in the Codex picker (if `codex` is found); the fallback source is `~/.codex/models_cache.json` | the model's reasoning effort (`supported_reasoning_levels`, for example `low..ultra`) |
+
+An agent's CLI is looked up in PATH and then in the usual install folders (`~/.local/bin`, `~/.claude/local`, the
+folder of the running `node`, nvm, Volta, Bun, pnpm, Homebrew…): the shell an agent runs commands in often lacks
+them in PATH. A CLI found only there is used by its absolute path, and its `CATALOG` line ends with
+`[<path>, not in PATH]`. `ORCA_POD_BIN_DIRS` (folders separated by `:`) replaces the list of usual folders.
 
 The form UI is in `scripts/form/` (`index.html`, `form.css`, `form.js`, `i18n.mjs`); the server
 `scripts/pipeline-form.mjs` serves the static files and the data (`GET /data`) and validates the form when "Generate YAML" is pressed.
@@ -129,8 +142,8 @@ for the roles whose agent differs from the profile's default. The catalog source
 
 Continue **only if `status: submitted`**. The result: `yaml` (the whole file),
 `settings` (`activeProfile` and `profiles[]` with `name`, `defaultProvider`,
-`maxSubagents`, `roles`), `targetPath`, `sourceHash` (the SHA-256 of the source file, or `null`),
-`migration`. On `cancelled`,
+`maxSubagents`, `roles`), `targetPath`, `git` (`false` outside a Git repository), `sourceHash` (the SHA-256
+of the source file, or `null`), `migration`. On `cancelled`,
 `timeout`, `aborted` or an error the configuration does not change.
 
 ### Claude Code and Codex (and other agents without the Pi tool): the same form through a script
@@ -144,21 +157,24 @@ returned control earlier, keep waiting for the same command, do not start a new 
 node <skill-dir>/scripts/setup-form.mjs
 ```
 
-- In the Codex sandbox the form's local HTTP server and opening the browser (`open`) may
-  need elevated permissions: if refused, ask for a retry with elevated permissions (Codex
-  will ask the user) or run with `--no-open` and give the link. Do not bypass the sandbox.
+- In Codex run the script with elevated permissions from the first call (Codex asks the user). In the Codex
+  sandbox the form cannot open its local port (`The form cannot open a local port … run setup-form.mjs with elevated
+  permissions`), Pi cannot take its lock files in `~/.pi/agent` and lists no models, and `open` may be refused.
+  Do not bypass the sandbox; if the user refuses, run with `--no-open` and give the link.
 - The script opens the browser and writes `FORM URL: …` to stderr — show the link to the
   user. Options: `--no-open` (only the URL), `--timeout <sec>` (900 by default),
   `--current-yaml-file <path>` (reopen with the previous choice).
 - The catalogs are as in the table above: the script runs `pi --list-models` and an ephemeral
   Pi RPC session (`--no-session`, without tools/MCP/skills) only to get
   the model metadata, with no AI requests; the `CATALOG …` lines in stderr show the
-  sources. An unavailable agent simply does not appear in the list.
+  sources. An unavailable agent simply does not appear in the list. Show the user every `CATALOG` line that
+  has no models, in one line each with what to do: `not found` — install the agent or put its folder in
+  PATH; `no write access (sandbox?)` — run the script again with elevated permissions.
   `--programs pi`, `--programs claude-code` or `--programs codex` (comma-separated for several)
   limits the set of agents.
 - Do not poll or wait in a loop: in Claude Code a notification about the background task
   arrives when it finishes. The last stdout line is one JSON with the same fields as the
-  Pi tool (`status`, `yaml`, `settings`, `targetPath`, `sourceHash`, `migration`).
+  Pi tool (`status`, `yaml`, `settings`, `targetPath`, `git`, `sourceHash`, `migration`).
 - Continue **only if `status: submitted`**; otherwise the configuration does not change.
 
 The fallback if the browser is unavailable or the user is against the form: show an
@@ -197,13 +213,14 @@ Look for `prefix_rule(pattern=["orca"])` in `~/.codex/rules/*.rules`. If it is n
 "Allow all orca commands in Codex without confirmation? The line prefix_rule(pattern=["orca"], decision="allow")
 will be added to ~/.codex/rules/default.rules". Add the line only after the user says "yes"; on "no", say that Codex roles will ask for confirmation of `orca` commands.
 
-Then add the pipeline's service folder to the project's `.gitignore` (idempotent):
+Then add the pipeline's service folder to the project's `.gitignore` (idempotent; skip this step when the
+result has `git: false`):
 
 ```bash
-<skill-dir>/scripts/ensure-gitignore.sh <git-root>
+<skill-dir>/scripts/ensure-gitignore.sh <project-root>
 ```
 
-The script changes only an existing `<git-root>/.gitignore` and adds `.orca-pod/`
+The script changes only an existing `<project-root>/.gitignore` and adds `.orca-pod/`
 (the pipeline writes the review reports there). `ADDED` — tell the user the file was changed;
 `OK` — the folder is already ignored; `SKIP` — there is no `.gitignore` (the script does not create it), say
 that `.orca-pod/` will be visible in `git status`.
@@ -211,7 +228,7 @@ that `.orca-pod/` will be visible in `git status`.
 The launcher reads the **saved** file. For a profile with `valid: false`, show its
 `error` and reopen the form with the previous choice
 (Pi — `current_yaml`, the script — `--current-yaml-file` with the YAML in a temporary file in the
-scratchpad). `--resolve` checks that the CLI is on PATH and, for Codex roles, that the
+scratchpad). `--resolve` checks that the CLI is on PATH or in the usual install folders and, for Codex roles, that the
 model and thinking are in the Codex catalog; it does not check authorization or access to the model.
 
 ## 5. Summary

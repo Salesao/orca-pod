@@ -1,8 +1,8 @@
 # What orca-pod.yaml means
 
 The file `.orca-pod/orca-pod.yaml` is one per Git repository, in the main
-checkout (a linked worktree may have its own in its `.orca-pod/`). The folder is added to
-`.gitignore` when the project has one. The old layouts — the `.orca-pipeline/` directory (with `orca-pipeline.yaml`
+checkout (a linked worktree may have its own in its `.orca-pod/`); outside Git, one per project folder. The folder is
+added to `.gitignore` when the project has one. The old layouts — the `.orca-pipeline/` directory (with `orca-pipeline.yaml`
 and `reports/`) and the `orca-pipeline.yaml` file in the project root — are migrated there
 automatically. The file sets the programs and models the pipeline works with. The file itself starts nothing.
 

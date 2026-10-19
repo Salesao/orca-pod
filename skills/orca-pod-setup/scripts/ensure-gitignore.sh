@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Adds the service folder .orca-pod/ (config and review reports) to the project's .gitignore.
 # A .orca-pipeline/ line from older versions stays in .gitignore as it is.
-#   ensure-gitignore.sh [git-root]    (default: the root of the repository of the current folder)
-# Idempotent. Changes only an existing <git-root>/.gitignore: if there is none, creates nothing
-# (SKIP). If the folder is already ignored by any rule, the file does not change (OK).
+#   ensure-gitignore.sh [project-root]    (default: the root of the repository of the current folder)
+# Idempotent. Changes only an existing <project-root>/.gitignore: if there is none, creates nothing
+# (SKIP); outside a Git repository it changes nothing either (SKIP). If the folder is already ignored by any rule,
+# the file does not change (OK).
 set -euo pipefail
 
 pattern=".orca-pod/"

@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 // Where orca-pod.yaml lives and how old config layouts are migrated.
 // There is one config per repository: <main checkout>/.orca-pod/orca-pod.yaml; a linked
-// worktree's own file in its .orca-pod/ wins. Shared module of the launcher, test-sandbox and the setup form.
+// worktree's own file in its .orca-pod/ wins. Git is optional: outside a repository the project folder is the
+// current folder, or its nearest parent that already has .orca-pod/ (projectLocation).
+// Shared module of the launcher, test-sandbox and the setup form.
 // Old layouts are migrated automatically (migrateLegacyConfig):
 //   v2: <root>/.orca-pipeline/ (with orca-pipeline.yaml and reports/) → <root>/.orca-pod/ as a whole,
 //       orca-pipeline.yaml inside → orca-pod.yaml; this is done for a worktree and for the main checkout;
 //   v1: <worktree>/orca-pipeline.yaml → the active .orca-pod/orca-pod.yaml.
 //   node config-location.mjs migrate [--cwd <dir>]  — migration, one line per result: MOVED/IGNORED/SKIP, or OK <path>
-//   node config-location.mjs where [--cwd <dir>]    — JSON configLocation
+//   node config-location.mjs where [--cwd <dir>]    — JSON configLocation (git: false outside a Git repository)
 
-import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, realpathSync, renameSync, rmSync, unlinkSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -41,13 +44,45 @@ export function activeConfigPath({ worktreePath, sharedPath }) {
   return existsSync(worktreePath) ? worktreePath : sharedPath;
 }
 
-export function configLocation({ worktreeRoot, commonDir }) {
+function isDirectory(file) {
+  try {
+    return statSync(file).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The project folder outside Git: the nearest folder from cwd up that has .orca-pod/, otherwise cwd itself.
+ * The search stops below the home folder and the filesystem root (their .orca-pod/ is not a project's), unless cwd is that folder.
+ */
+export function plainFolderRoot(cwd, home = os.homedir()) {
+  const start = realpathSync(cwd);
+  for (let directory = start; ; directory = path.dirname(directory)) {
+    const isBoundary = directory === home || directory === path.dirname(directory);
+    if (isBoundary && directory !== start) return start;
+    if (isDirectory(path.join(directory, CONFIG_DIR))) return directory;
+    if (isBoundary) return start;
+  }
+}
+
+/** gitLocation inside a Git repository; outside it the plain project folder, with commonDir null and git false. */
+export function projectLocation(cwd, { home = os.homedir() } = {}) {
+  try {
+    return { ...gitLocation(cwd), git: true };
+  } catch {
+    return { worktreeRoot: plainFolderRoot(cwd, home), commonDir: null, git: false };
+  }
+}
+
+export function configLocation({ worktreeRoot, commonDir, git = true }) {
   // For submodule and bare layouts the shared directory is not <root>/.git: then the main checkout is the current one.
-  const mainRoot = path.basename(commonDir) === ".git" ? path.dirname(commonDir) : worktreeRoot;
+  // Without Git (commonDir null) there is no main checkout either.
+  const mainRoot = commonDir && path.basename(commonDir) === ".git" ? path.dirname(commonDir) : worktreeRoot;
   const worktreePath = path.join(worktreeRoot, CONFIG_DIR, CONFIG_FILE);
   const sharedPath = path.join(mainRoot, CONFIG_DIR, CONFIG_FILE);
   return {
-    worktreeRoot, mainRoot, worktreePath, sharedPath,
+    git, worktreeRoot, mainRoot, worktreePath, sharedPath,
     activePath: activeConfigPath({ worktreePath, sharedPath }),
     // v1: a file in the worktree root. v2: an .orca-pipeline/ directory in the worktree and in the main checkout (no duplicates).
     legacyPath: path.join(worktreeRoot, LEGACY_FILE),
@@ -165,7 +200,7 @@ function main(argv) {
     if (rest[index] === "--cwd" && index + 1 < rest.length) cwd = rest[++index];
     else throw new Error("usage: config-location.mjs migrate|where [--cwd <dir>]");
   }
-  const location = configLocation(gitLocation(cwd));
+  const location = configLocation(projectLocation(cwd));
   if (command === "where") return console.log(JSON.stringify(location));
   if (command !== "migrate") throw new Error("usage: config-location.mjs migrate|where [--cwd <dir>]");
   console.log(migrationText(migrateLegacyConfig(location)) ?? `OK ${location.activePath}`);

@@ -23,8 +23,8 @@ export function parseCodexCatalog(json) {
 }
 
 // debug models output is ~62 KB per model: the default maxBuffer (1 MiB) fits only ~16 models.
-function runCommand(command, args) {
-  return spawnSync(command, args, { encoding: "utf8", timeout: 20000, maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+function runCommand(command, args, env) {
+  return spawnSync(command, args, { encoding: "utf8", env, timeout: 20000, maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
 }
 
 function failureReason(result) {
@@ -33,11 +33,14 @@ function failureReason(result) {
   return null;
 }
 
-/** authoritative — the catalog comes from debug models; the Codex cache may be incomplete, so "no such model" is not proven by it. */
-export function readCodexCatalog({ run = runCommand, codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex") } = {}) {
+/**
+ * authoritative — the catalog comes from debug models; the Codex cache may be incomplete, so "no such model" is not proven by it.
+ * command and env — a codex found outside PATH (find-executable.mjs).
+ */
+export function readCodexCatalog({ run = runCommand, codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex"), command = "codex", env = process.env } = {}) {
   let reason;
   try {
-    const result = run("codex", ["debug", "models"]);
+    const result = run(command, ["debug", "models"], env);
     reason = failureReason(result);
     if (!reason) {
       const models = parseCodexCatalog(result.stdout);

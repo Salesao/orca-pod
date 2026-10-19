@@ -36,8 +36,15 @@ function link({ home, bin }) {
 
 test("link-pi-extension: without pi in PATH → SKIP and nothing is linked", (t) => withSandbox(({ home, target }) => {
   if (existsSync("/usr/bin/pi") || existsSync("/bin/pi")) return t.skip("a system-wide pi is installed");
-  assert.deepEqual(link({ home }), ["SKIP  pi not found in PATH, the form extension is not linked"]);
+  assert.deepEqual(link({ home }), ["SKIP  pi not found (no pi in PATH, no ~/.pi/agent), the form extension is not linked"]);
   assert.equal(existsSync(target), false);
+}));
+
+test("link-pi-extension: pi not in the shell's PATH but ~/.pi/agent exists → Pi is installed, LINK", (t) => withSandbox(({ home, target }) => {
+  if (existsSync("/usr/bin/pi") || existsSync("/bin/pi")) return t.skip("a system-wide pi is installed");
+  mkdirSync(path.join(home, ".pi", "agent"), { recursive: true });
+  assert.equal(link({ home })[0], `LINK  ${target} -> ${SOURCE_DIR}`);
+  assert.equal(readlinkSync(target), SOURCE_DIR);
 }));
 
 test("link-pi-extension: first run → LINK and a /reload hint, the repeat → OK", () => withSandbox((box) => {

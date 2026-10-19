@@ -8,15 +8,17 @@
 //                 effort per model. Subagents get aliases only (the Agent tool).
 //   codex       — `codex debug models` (the models visible in the Codex picker and their reasoning effort),
 //                 the fallback source is ~/.codex/models_cache.json (a module shared with the pipeline skill).
+// Each CLI is looked up in PATH and then in the usual install folders (find-executable.mjs of the pipeline skill).
 
-import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import os from 'node:os';
+import { spawn } from 'node:child_process';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readCodexCatalog } from '../../orca-pod/scripts/codex-models.mjs';
+import { displayPath, envFor, findExecutable } from '../../orca-pod/scripts/find-executable.mjs';
 
-const PI_PACKAGE = '@earendil-works/pi-coding-agent';
+// Pi's npm scope: @earendil-works since Pi 0.74, @mariozechner before it.
+const PI_SCOPES = ['@earendil-works', '@mariozechner'];
 const PI_ALL_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 // The agents whose catalogs go into the form.
 export const ENABLED_PROGRAMS = ['pi', 'claude-code', 'codex'];
@@ -25,32 +27,35 @@ export const CLAUDE_CODE_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max
 const CLAUDE_CODE_ALIASES = ['opus', 'sonnet', 'haiku', 'fable'];
 const CLAUDE_FAMILY_ORDER = ['fable', 'opus', 'sonnet', 'haiku'];
 
-export function onPath(command) {
-  return (process.env.PATH ?? '').split(path.delimiter).some((directory) => {
-    try {
-      const file = path.join(directory, command);
-      return statSync(file).isFile() && (statSync(file).mode & 0o111) !== 0;
-    } catch {
-      return false;
-    }
-  });
+// A CLI not found anywhere is not in the form; one found outside PATH is run by its absolute path.
+const NOT_FOUND = ' not found (neither in PATH nor in the usual install folders)';
+const foundAt = (found) => found.onPath ? '' : ' [' + displayPath(found.file) + ', not in PATH]';
+
+// The reason of a failed CLI for the CATALOG line. A crashed node prints its version last ("Node.js v24…"),
+// so the line with the error code is taken instead. EPERM/EACCES is a sandbox that does not let the CLI write
+// its own files (Pi takes lock files in ~/.pi/agent even to list the models).
+export function failureReason(stderr) {
+  const lines = String(stderr).split('\n').map((line) => line.trim()).filter((line) => line && !/^Node\.js v\d/.test(line));
+  const line = lines.find((text) => /\b(EPERM|EACCES|operation not permitted|permission denied)\b/i.test(text))
+    || lines.find((text) => /Error\b|\bE[A-Z]{3,}\b/.test(text)) || lines.at(-1) || '';
+  const sandbox = /\b(EPERM|EACCES|operation not permitted)\b/i.test(line) ? ' — no write access (sandbox?): run the form with elevated permissions' : '';
+  return line + sandbox;
 }
 
-function run(command, args, { cwd, timeoutMs, input = null }) {
+function run(file, args, { cwd, env, timeoutMs, label }) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, stdio: [input === null ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
+    const child = spawn(file, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
-    const timer = setTimeout(() => { child.kill('SIGTERM'); reject(new Error(command + ' did not answer within ' + timeoutMs / 1000 + ' s')); }, timeoutMs);
+    const timer = setTimeout(() => { child.kill('SIGTERM'); reject(new Error(label + ' did not answer within ' + timeoutMs / 1000 + ' s')); }, timeoutMs);
     child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.stderr.on('data', (chunk) => { stderr += chunk; });
     child.on('error', (error) => { clearTimeout(timer); reject(error); });
     child.on('close', (code) => {
       clearTimeout(timer);
-      if (code === 0) resolve(stdout);
-      else reject(new Error(command + ' exited with code ' + code + (stderr.trim() ? ': ' + stderr.trim().split('\n').at(-1) : '')));
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new Error(label + ' exited with code ' + code + (stderr.trim() ? ': ' + failureReason(stderr) : '')));
     });
-    if (input !== null) child.stdin.end(input);
   });
 }
 
@@ -72,18 +77,25 @@ function normalizeAnthropicModels(models) {
     });
 }
 // The Anthropic catalog from Pi outside a Pi session: local (synchronized) data, no network.
+// ModelRuntime exists since Pi 0.80.8; before it the pi-ai root exports the built-in catalog (getModels).
 async function piAnthropicModels() {
   const { ai, sdk } = await loadPiSdk();
-  const runtime = await sdk.ModelRuntime.create({ allowModelNetwork: false });
-  const registry = new sdk.ModelRegistry(runtime);
-  return registry.getAll()
-    .filter((model) => model.provider === 'anthropic')
-    .map((model) => ({ id: model.id, levels: ai.getSupportedThinkingLevels(model) }));
+  let models;
+  if (sdk.ModelRuntime) {
+    const runtime = await sdk.ModelRuntime.create({ allowModelNetwork: false });
+    models = new sdk.ModelRegistry(runtime).getAll().filter((model) => model.provider === 'anthropic');
+  } else if (ai.getModels) {
+    models = ai.getModels('anthropic');
+  } else {
+    throw new Error('this Pi version exposes no model catalog');
+  }
+  return models.map((model) => ({ id: model.id, levels: ai.getSupportedThinkingLevels(model) }));
 }
 
 // anthropicModels — [{ id, levels }] from the registry of the current Pi session; otherwise the Pi catalog is read.
 export async function claudeCodeCatalog({ anthropicModels = null } = {}) {
-  if (!onPath('claude')) return { program: 'claude-code', models: [], source: 'Claude Code: claude not found in PATH' };
+  const claude = findExecutable('claude');
+  if (!claude) return { program: 'claude-code', models: [], source: 'Claude Code: claude' + NOT_FOUND };
   let versions = [];
   let problem = '';
   try { versions = normalizeAnthropicModels(anthropicModels || await piAnthropicModels()); }
@@ -102,30 +114,34 @@ export async function claudeCodeCatalog({ anthropicModels = null } = {}) {
     program: 'claude-code', provider: 'claude-code', id: m.id, levels: m.levels,
     group: 'Claude Code · specific version', roleOnly: true,
   }));
-  const source = versions.length
+  const source = (versions.length
     ? 'Claude Code: aliases + ' + versions.length + ' versions from the Anthropic catalog in Pi (as in claude-bridge); effort per model'
-    : 'Claude Code: aliases only, effort low..max' + (problem ? ' (Anthropic catalog from Pi unavailable: ' + problem + ')' : '');
+    : 'Claude Code: aliases only, effort low..max' + (problem ? ' (Anthropic catalog from Pi unavailable: ' + problem + ')' : '')) + foundAt(claude);
   return { program: 'claude-code', models: [...aliases, ...pinned], source };
 }
 
 export function codexCatalog() {
-  if (!onPath('codex')) return { program: 'codex', models: [], source: 'Codex: codex not found in PATH' };
-  const { models, source } = readCodexCatalog();
+  const codex = findExecutable('codex');
+  if (!codex) return { program: 'codex', models: [], source: 'Codex: codex' + NOT_FOUND };
+  const { models, source } = readCodexCatalog({ command: codex.file, env: envFor(codex) });
   return {
     program: 'codex',
     models: models.filter((model) => model.visible && model.levels.length)
       .map((model) => ({ program: 'codex', provider: 'codex', id: model.id, levels: model.levels })),
-    source,
+    source: source + foundAt(codex),
   };
 }
 
+/** { directory, scope } of the installed pi-coding-agent, or null. */
 function piPackageDir() {
-  const which = spawnSync('which', ['pi'], { encoding: 'utf8' });
-  if (which.status !== 0 || !which.stdout.trim()) return null;
-  let directory = path.dirname(realpathSync(which.stdout.trim()));
+  const pi = findExecutable('pi');
+  if (!pi) return null;
+  let directory = path.dirname(realpathSync(pi.file));
   while (directory !== path.dirname(directory)) {
     const manifest = path.join(directory, 'package.json');
-    if (existsSync(manifest) && JSON.parse(readFileSync(manifest, 'utf8')).name === PI_PACKAGE) return directory;
+    const name = existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')).name : null;
+    const scope = PI_SCOPES.find((candidate) => name === candidate + '/pi-coding-agent');
+    if (scope) return { directory, scope };
     directory = path.dirname(directory);
   }
   return null;
@@ -136,14 +152,15 @@ function piPackageDir() {
 let piSdkPromise = null;
 function loadPiSdk() {
   piSdkPromise ??= (async () => {
-    const packageDir = piPackageDir();
-    if (!packageDir) throw new Error('package ' + PI_PACKAGE + ' not found');
-    const aiDir = [path.join(packageDir, 'node_modules/@earendil-works/pi-ai'), path.join(packageDir, '../pi-ai')]
+    const found = piPackageDir();
+    if (!found) throw new Error('package ' + PI_SCOPES.map((scope) => scope + '/pi-coding-agent').join(' or ') + ' not found');
+    const { directory: packageDir, scope } = found;
+    const aiDir = [path.join(packageDir, 'node_modules', scope, 'pi-ai'), path.join(packageDir, '../pi-ai')]
       .find((directory) => existsSync(path.join(directory, 'package.json')));
-    if (!aiDir) throw new Error('@earendil-works/pi-ai not found next to ' + PI_PACKAGE);
+    if (!aiDir) throw new Error(scope + '/pi-ai not found next to ' + scope + '/pi-coding-agent');
     const entry = JSON.parse(readFileSync(path.join(aiDir, 'package.json'), 'utf8')).exports?.['.'];
     const aiFile = typeof entry === 'string' ? entry : entry?.import || entry?.default;
-    if (!aiFile) throw new Error('@earendil-works/pi-ai has no entry point');
+    if (!aiFile) throw new Error(scope + '/pi-ai has no entry point');
     const [ai, sdk] = await Promise.all([
       import(pathToFileURL(path.join(aiDir, aiFile)).href),
       import(pathToFileURL(path.join(packageDir, 'dist/index.js')).href),
@@ -157,9 +174,10 @@ async function piThinkingLevelsFunction() {
   return (await loadPiSdk()).ai.getSupportedThinkingLevels;
 }
 
-async function piListModels(cwd) {
-  const output = await run('pi', ['--list-models'], { cwd, timeoutMs: 30000 });
-  return output.split('\n')
+// Pi before 0.74 prints the table to stderr, later versions to stdout.
+async function piListModels(pi, cwd) {
+  const { stdout, stderr } = await run(pi.file, ['--list-models'], { cwd, env: envFor(pi), timeoutMs: 30000, label: 'pi' });
+  return (/^provider\s/m.test(stdout) ? stdout : stderr).split('\n')
     .map((line) => line.trim().split(/\s+/))
     .filter((columns) => columns.length >= 5 && columns[0] !== 'provider')
     .map(([provider, id, , , thinking]) => ({ provider, id, thinking: thinking === 'yes' }));
@@ -167,15 +185,34 @@ async function piListModels(cwd) {
 
 // A separate ephemeral Pi session only for the model metadata: no session saving,
 // tools, MCP, skills or context files; extensions (providers) are loaded.
-async function piRpcModels(cwd) {
-  const args = ['--mode', 'rpc', '--no-session', '--no-tools', '--no-mcp', '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files'];
+// An older Pi refuses a flag it does not know yet ("Unknown option: --no-mcp" before Pi had MCP): that flag is dropped
+// and the session started again.
+const PI_RPC_ARGS = ['--mode', 'rpc', '--no-session', '--no-tools', '--no-mcp', '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files'];
+
+async function piRpcModels(pi, cwd, args = PI_RPC_ARGS) {
+  try {
+    return await piRpcSession(pi, cwd, args);
+  } catch (error) {
+    const unknown = error.unknownOption;
+    if (unknown && unknown !== '--mode' && args.includes(unknown)) return piRpcModels(pi, cwd, args.filter((arg) => arg !== unknown));
+    throw error;
+  }
+}
+
+function piRpcSession(pi, cwd, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn('pi', args, { cwd, stdio: ['pipe', 'pipe', 'ignore'] });
+    const child = spawn(pi.file, args, { cwd, env: envFor(pi), stdio: ['pipe', 'pipe', 'pipe'] });
     let buffer = '';
+    let stderr = '';
     const finish = (error, models) => { clearTimeout(timer); child.kill('SIGTERM'); error ? reject(error) : resolve(models); };
     const timer = setTimeout(() => finish(new Error('pi RPC did not answer within 30 s')), 30000);
     child.on('error', (error) => finish(error));
-    child.on('close', (code) => finish(new Error('pi RPC finished without an answer (code ' + code + ')')));
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('close', (code) => {
+      const error = new Error('pi RPC finished without an answer (code ' + code + ')' + (stderr.trim() ? ': ' + failureReason(stderr) : ''));
+      error.unknownOption = /Unknown option: (--[\w-]+)/.exec(stderr)?.[1];
+      finish(error);
+    });
     child.stdout.on('data', (chunk) => {
       buffer += chunk;
       const lines = buffer.split('\n');
@@ -196,8 +233,9 @@ async function piRpcModels(cwd) {
 }
 
 export async function piCatalog({ cwd }) {
-  if (!onPath('pi')) return { program: 'pi', models: [], source: 'Pi: pi not found in PATH' };
-  const [listed, rpc, levelsOf] = await Promise.allSettled([piListModels(cwd), piRpcModels(cwd), piThinkingLevelsFunction()]);
+  const pi = findExecutable('pi');
+  if (!pi) return { program: 'pi', models: [], source: 'Pi: pi' + NOT_FOUND };
+  const [listed, rpc, levelsOf] = await Promise.allSettled([piListModels(pi, cwd), piRpcModels(pi, cwd), piThinkingLevelsFunction()]);
   const rpcByKey = new Map(rpc.status === 'fulfilled' ? rpc.value.map((model) => [model.provider + '/' + model.id, model]) : []);
   const exactLevels = (model) => {
     if (!model || levelsOf.status !== 'fulfilled') return null;
@@ -208,7 +246,7 @@ export async function piCatalog({ cwd }) {
   else if (rpcByKey.size) rows = [...rpcByKey.values()].map((model) => ({ provider: model.provider, id: model.id, thinking: !!model.reasoning }));
   else {
     const reason = listed.status === 'rejected' ? listed.reason.message : 'empty list';
-    return { program: 'pi', models: [], source: 'Pi: pi --list-models unavailable (' + reason + ')' };
+    return { program: 'pi', models: [], source: 'Pi: pi --list-models unavailable (' + reason + ')' + foundAt(pi) };
   }
   let approximated = 0;
   const models = rows.map((row) => {
@@ -220,7 +258,7 @@ export async function piCatalog({ cwd }) {
   const levelSource = approximated
     ? 'thinking: ' + (models.length - approximated) + ' exact from RPC, ' + approximated + ' approximate (Pi itself limits an unsupported level)'
     : 'thinking: exact from RPC get_available_models';
-  return { program: 'pi', models, source: 'Pi: ' + listSource + ' — ' + models.length + ' models; ' + levelSource };
+  return { program: 'pi', models, source: 'Pi: ' + listSource + ' — ' + models.length + ' models; ' + levelSource + foundAt(pi) };
 }
 
 // piModels — an already known Pi catalog (for example the registry of the current Pi session); otherwise the CLI.

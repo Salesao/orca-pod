@@ -12,6 +12,8 @@ import { parsePipelineYaml, resolveProfile } from "../../orca-pod/scripts/pipeli
 
 const LAUNCHER_PATH = fileURLToPath(new URL("../../orca-pod/scripts/launch-provider.mjs", import.meta.url));
 const SETUP_FORM_PATH = fileURLToPath(new URL("./setup-form.mjs", import.meta.url));
+// An empty ORCA_POD_BIN_DIRS: agent CLIs are looked up only in the test's PATH, never in this machine's install folders.
+process.env.ORCA_POD_BIN_DIRS = "";
 
 // A non-ASCII (Cyrillic) profile name, written with \u escapes: it must survive validateServer, buildYaml, prefill and the launcher.
 const CHEAP = "\u0434\u0435\u0448\u0451\u0432\u044b\u0439";
@@ -417,11 +419,19 @@ function withProject(prefix, run, { git = true } = {}) {
   }
 }
 
-test("setup-form.mjs: outside a Git project → status error with an English message", () => withProject("orca-setup-form-nogit-", (project, root) => {
-  const { outcome } = runSetupForm(project, root, { env: { GIT_CEILING_DIRECTORIES: root } });
-  assert.equal(outcome.status, "error");
-  assert.equal(outcome.error, "Open a Git project folder before configuring the pipeline");
+test("setup-form.mjs outside a Git repository: the form opens for the current folder, git false, a PROJECT line on stderr", () => withProject("orca-setup-form-nogit-", (project, root) => {
+  const { result, outcome } = runSetupForm(project, root, { env: { GIT_CEILING_DIRECTORIES: root } });
+  assert.equal(outcome.status, "timeout", result.stdout + result.stderr);
+  assert.equal(outcome.git, false);
+  assert.equal(outcome.targetPath, path.join(project, ".orca-pod", "orca-pod.yaml"));
+  assert.match(result.stderr, new RegExp("^PROJECT " + project.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + " \\(not a Git repository: the config goes into this folder\\)$", "m"));
 }, { git: false }));
+
+test("setup-form.mjs in a Git repository: git true and no PROJECT line", () => withProject("orca-setup-form-git-", (project, root) => {
+  const { result, outcome } = runSetupForm(project, root, { env: { GIT_CEILING_DIRECTORIES: root } });
+  assert.equal(outcome.git, true);
+  assert.doesNotMatch(result.stderr, /^PROJECT /m);
+}));
 
 test("setup-form.mjs: a directory instead of orca-pod.yaml → status error with an English message", () => withProject("orca-setup-form-dir-", (project, root) => {
   mkdirSync(path.join(project, ".orca-pod", "orca-pod.yaml"), { recursive: true });

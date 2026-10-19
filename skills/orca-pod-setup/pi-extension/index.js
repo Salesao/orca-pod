@@ -1,7 +1,3 @@
-import { Type, getSupportedThinkingLevels } from '@earendil-works/pi-ai';
-import { defineTool } from '@earendil-works/pi-coding-agent';
-// Static, like the two imports above: Pi maps its packages for extensions (a dynamic import of them is unverified).
-import { Editor, Key, matchesKey, visibleWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
 import { askResultText, createAskComponent, normalizeAskParams } from './ask.js';
 import { lstat, readFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
@@ -27,34 +23,66 @@ async function loadSetupScripts() {
   return { startPipelineForm: form.startPipelineForm, discoverCatalogs: catalogs.discoverCatalogs, location };
 }
 
-const AgentSettings = Type.Object({ name: Type.String(), model: Type.String(), thinking: Type.String() });
-const RoleSettings = Type.Object({
-  provider: Type.Optional(Type.String()),
-  model: Type.String(),
-  thinking: Type.String(),
-  useSubagents: Type.Boolean(),
-  subagents: Type.Array(AgentSettings),
-});
-const ProfileSettings = Type.Object({
-  name: Type.String(),
-  defaultProvider: Type.String(),
-  maxSubagents: Type.Number(),
-  roles: Type.Object({ planner: RoleSettings, implementer: RoleSettings, reviewer: Type.Optional(RoleSettings), chief_reviewer: Type.Optional(RoleSettings) }),
-});
-const FormOutput = Type.Object({
-  status: Type.Union(['submitted', 'cancelled', 'timeout', 'aborted', 'error'].map((s) => Type.Literal(s))),
-  targetPath: Type.String(),
-  sourceHash: Type.Union([Type.String(), Type.Null()]),
-  url: Type.String(),
-  // Migration of the old .orca-pipeline/ and <git-root>/orca-pipeline.yaml into .orca-pod/: MOVED/IGNORED/SKIP lines joined by \n, or null.
-  migration: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-  yaml: Type.Optional(Type.String()),
-  settings: Type.Optional(Type.Object({
-    activeProfile: Type.String(),
-    profiles: Type.Array(ProfileSettings),
-  })),
-  error: Type.Optional(Type.String()),
-});
+// Pi's packages are @earendil-works/* since Pi 0.74 and @mariozechner/* before it. Pi maps them for extensions, dynamic
+// imports included: Pi 0.74+ maps both scopes, older Pi only the old one. So each package is imported by the new name and,
+// failing that, by the old one, and the extension loads in both. A static import would tie it to one of them.
+const PI_SCOPES = ['@earendil-works', '@mariozechner'];
+
+async function importPiPackage(name) {
+  let firstError;
+  for (const scope of PI_SCOPES) {
+    try { return await import(scope + '/' + name); }
+    catch (error) { firstError ??= error; }
+  }
+  throw firstError;
+}
+
+function formOutputSchema(Type) {
+  const AgentSettings = Type.Object({ name: Type.String(), model: Type.String(), thinking: Type.String() });
+  const RoleSettings = Type.Object({
+    provider: Type.Optional(Type.String()),
+    model: Type.String(),
+    thinking: Type.String(),
+    useSubagents: Type.Boolean(),
+    subagents: Type.Array(AgentSettings),
+  });
+  const ProfileSettings = Type.Object({
+    name: Type.String(),
+    defaultProvider: Type.String(),
+    maxSubagents: Type.Number(),
+    roles: Type.Object({ planner: RoleSettings, implementer: RoleSettings, reviewer: Type.Optional(RoleSettings), chief_reviewer: Type.Optional(RoleSettings) }),
+  });
+  return Type.Object({
+    status: Type.Union(['submitted', 'cancelled', 'timeout', 'aborted', 'error'].map((s) => Type.Literal(s))),
+    targetPath: Type.String(),
+    // false outside a Git repository: the config goes into the project folder, there is no .gitignore step.
+    git: Type.Optional(Type.Boolean()),
+    sourceHash: Type.Union([Type.String(), Type.Null()]),
+    url: Type.String(),
+    // Migration of the old .orca-pipeline/ and <project-root>/orca-pipeline.yaml into .orca-pod/: MOVED/IGNORED/SKIP lines joined by \n, or null.
+    migration: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    yaml: Type.Optional(Type.String()),
+    settings: Type.Optional(Type.Object({
+      activeProfile: Type.String(),
+      profiles: Type.Array(ProfileSettings),
+    })),
+    error: Type.Optional(Type.String()),
+  });
+}
+
+function askQuestionSchema(Type) {
+  const AskOption = Type.Object({ label: Type.String(), description: Type.Optional(Type.String()) });
+  return Type.Object({
+    question: Type.String({ description: 'The full question, about the matter itself' }),
+    header: Type.String({ description: 'Tab label, up to 12 characters, e.g. "3 Rollback"' }),
+    context: Type.Optional(Type.String({ description: 'The card (situation, proposal, cost) shown above the question, up to 600 characters' })),
+    options: Type.Array(AskOption, { description: '2-4 options; the free answer "Type something." is added automatically' }),
+  });
+}
+
+// The question window needs a terminal UI. ctx.mode exists since Pi 0.78; older Pi has only hasUI, which is also true in RPC
+// (there ctx.ui.custom returns undefined, and the call ends as interrupted).
+const hasTerminalUi = (ctx) => (ctx.mode === undefined ? ctx.hasUI === true : ctx.mode === 'tui');
 
 async function readExistingConfig(file) {
   try {
@@ -84,6 +112,7 @@ function toolResult(data) {
     text = [
       'The user submitted the Orca pipeline settings from the browser form.',
       'Target file: ' + data.targetPath,
+      ...(data.git === false ? ['Not a Git repository: the config goes into this folder; tell the user the path in one line.'] : []),
       'SHA-256 of the source file: ' + (data.sourceHash ?? '(there was no file)'),
       'Default profile (active_profile): ' + data.settings.activeProfile,
       ...data.settings.profiles.flatMap((p) => [
@@ -111,17 +140,14 @@ function toolResult(data) {
   return { content: [{ type: 'text', text }], details: data, structuredContent: data };
 }
 
-const TUI_KIT = { Editor, Key, matchesKey, visibleWidth, wrapTextWithAnsi };
-const AskOption = Type.Object({ label: Type.String(), description: Type.Optional(Type.String()) });
-const AskQuestion = Type.Object({
-  question: Type.String({ description: 'The full question, about the matter itself' }),
-  header: Type.String({ description: 'Tab label, up to 12 characters, e.g. "3 Rollback"' }),
-  context: Type.Optional(Type.String({ description: 'The card (situation, proposal, cost) shown above the question, up to 600 characters' })),
-  options: Type.Array(AskOption, { description: '2-4 options; the free answer "Type something." is added automatically' }),
-});
 const askToolResult = (data) => ({ content: [{ type: 'text', text: askResultText(data) }], details: data });
 
-export default function (pi) {
+export default async function (pi) {
+  const [{ Type, getSupportedThinkingLevels }, { defineTool }, { Editor, Key, matchesKey, visibleWidth, wrapTextWithAnsi }] = await Promise.all([
+    importPiPackage('pi-ai'), importPiPackage('pi-coding-agent'), importPiPackage('pi-tui'),
+  ]);
+  const TUI_KIT = { Editor, Key, matchesKey, visibleWidth, wrapTextWithAnsi };
+  const AskQuestion = askQuestionSchema(Type);
   // Resources start only in execute(), never while loading the extension.
   const activeForms = new Set();
   const activeAsks = new Set();
@@ -144,7 +170,7 @@ export default function (pi) {
       const parsed = normalizeAskParams(params);
       if (!parsed.ok) return askToolResult({ reason: 'invalid', error: parsed.error });
       // print/json have no UI; in rpc ctx.ui.custom returns undefined.
-      if (ctx.mode !== 'tui') return askToolResult({ reason: 'no-ui', mode: ctx.mode });
+      if (!hasTerminalUi(ctx)) return askToolResult({ reason: 'no-ui', mode: ctx.mode ?? 'without UI' });
       const controller = new AbortController();
       const onAbort = () => controller.abort();
       signal?.addEventListener('abort', onAbort, { once: true });
@@ -165,7 +191,7 @@ export default function (pi) {
   pi.registerTool(defineTool({
     name: 'orca_pod_setup',
     label: 'Orca pipeline setup',
-    description: 'Open the existing Orca pipeline configuration form in a browser. “Generate YAML” returns the chosen settings and YAML directly to this tool call, like pi-interview. No shell server, polling, sleep or result files. Resolve the current Git root and prefill the active orca-pod.yaml (the linked worktree’s own file if there is one, otherwise the shared one). Does not write that file or launch pipeline roles. After submitted, follow the orca-pod-setup skill to save the config and validate it. Cancellation must not generate default settings.',
+    description: 'Open the existing Orca pipeline configuration form in a browser. “Generate YAML” returns the chosen settings and YAML directly to this tool call, like pi-interview. No shell server, polling, sleep or result files. Resolve the project folder (the Git root; outside Git the current folder) and prefill the active orca-pod.yaml (the linked worktree’s own file if there is one, otherwise the shared one). Does not write that file or launch pipeline roles. After submitted, follow the orca-pod-setup skill to save the config and validate it. Cancellation must not generate default settings.',
     promptSnippet: 'Configure orca-pod.yaml through the browser form; the answer returns directly to the agent.',
     exposure: 'model-only',
     executionMode: 'sequential',
@@ -174,7 +200,7 @@ export default function (pi) {
       no_open: Type.Optional(Type.Boolean({ description: 'Show form URL without launching the browser', default: false })),
       current_yaml: Type.Optional(Type.String({ description: 'Previous generated YAML to prefill when reopening after a validation error; omit to use the project config' })),
     }, { additionalProperties: false }),
-    outputSchema: FormOutput,
+    outputSchema: formOutputSchema(Type),
 
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       if (activeForms.size) throw new Error('A pipeline setup form is already open in this session');
@@ -187,13 +213,14 @@ export default function (pi) {
       let targetPath = '';
       let sourceHash = null;
       let migration = null;
-      const cancelledResult = () => toolResult({ status: 'aborted', targetPath, sourceHash, migration, url: form?.url || '' });
+      let git;
+      const cancelledResult = () => toolResult({ status: 'aborted', targetPath, git, sourceHash, migration, url: form?.url || '' });
       try {
         if (controller.signal.aborted) return cancelledResult();
         const { startPipelineForm, discoverCatalogs, location: configModule } = await loadSetupScripts();
-        let location;
-        try { location = configModule.configLocation(configModule.gitLocation(ctx.cwd)); }
-        catch { throw new Error('Open a Git project folder before configuring the pipeline'); }
+        // Git is optional: outside a repository the config goes into the current folder (or its nearest parent with .orca-pod/).
+        const location = configModule.configLocation(configModule.projectLocation(ctx.cwd));
+        git = location.git;
         if (controller.signal.aborted) return cancelledResult();
         // The old .orca-pipeline/ and orca-pipeline.yaml move into .orca-pod/ before the config is read.
         migration = configModule.migrationText(configModule.migrateLegacyConfig(location));
@@ -232,7 +259,7 @@ export default function (pi) {
         // Browser POST resolves this Promise and Pi resumes the agent automatically.
         const outcome = await form.result;
         if (outcome.status === 'error') throw new Error(outcome.error);
-        return toolResult({ ...outcome, targetPath, sourceHash, migration });
+        return toolResult({ ...outcome, targetPath, git, sourceHash, migration });
       } catch (error) {
         if (controller.signal.aborted) return cancelledResult();
         throw error;

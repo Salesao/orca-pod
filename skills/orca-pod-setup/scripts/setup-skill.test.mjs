@@ -17,10 +17,15 @@ test("the question about the orca rule for Codex comes after the YAML is saved (
   assert.match(SKILL.slice(save, summary), /full_access/);
 });
 
-test("the form from Codex: the local server and opening the browser in the sandbox may need elevated permissions", () => {
-  const scriptPath = SKILL.slice(SKILL.indexOf("### Claude Code and Codex"), SKILL.indexOf("## 4. Save the file and validate"));
+// A live Codex run: link-agents.sh and link-pi-extension.sh failed with "Operation not permitted" before the retry, and
+// Pi listed no models inside the sandbox (it takes lock files in ~/.pi/agent).
+test("the form from Codex: the link scripts and the form run with elevated permissions from the first call", () => {
+  const scriptPath = SKILL.slice(SKILL.indexOf("### Claude Code and Codex"), SKILL.indexOf("## 4. Save the file and validate")).replace(/\s+/g, " ");
   assert.match(scriptPath, /Codex sandbox/);
-  assert.match(scriptPath, /elevated permissions/);
+  assert.match(scriptPath, /elevated permissions from the first call/);
+  assert.match(scriptPath, /no write access \(sandbox\?\)/);
+  const links = SKILL.slice(SKILL.indexOf("## 2. Connect the helper agents"), SKILL.indexOf("## 3. Choose the path")).replace(/\s+/g, " ");
+  assert.match(links, /In Codex run this script, `link-pi-extension.sh` below and `setup-form.mjs` \(step 3\) with elevated permissions from the first call/);
 });
 
 // ── guards over all the setup docs ──
@@ -111,7 +116,7 @@ test("discovery-and-recommendations.md: no auth probes, no silent fallback to an
 
 // ── fix round 1 ──
 
-const RESOLVE_CHECK = "checks that the CLI is on PATH and, for Codex roles, that the model and thinking are in the Codex catalog";
+const RESOLVE_CHECK = "checks that the CLI is on PATH or in the usual install folders and, for Codex roles, that the model and thinking are in the Codex catalog";
 
 test("--resolve is described the same way everywhere: CLI on PATH plus the Codex catalog, no auth or access check", () => {
   const skill = flat(SKILL);

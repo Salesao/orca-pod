@@ -3,11 +3,14 @@ import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { claudeCodeCatalog, codexCatalog, discoverCatalogs, piCatalog } from "./catalogs.mjs";
+import { claudeCodeCatalog, codexCatalog, discoverCatalogs, failureReason, piCatalog } from "./catalogs.mjs";
 
 // The catalog texts the form shows: optgroup labels and "source" lines. They are English (the form translates only its own UI).
-// onPath() reads process.env.PATH at call time, so each test sets PATH to a directory with stub executables.
+// findExecutable() reads process.env.PATH at call time, so each test sets PATH to a directory with stub executables.
+// An empty ORCA_POD_BIN_DIRS turns off the usual install folders: the real CLIs of this machine are not found.
+process.env.ORCA_POD_BIN_DIRS = "";
 const SYSTEM_PATH = "/usr/bin:/bin";
+const NOT_FOUND = "not found (neither in PATH nor in the usual install folders)";
 
 async function withPath(stubs, run) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "orca-catalogs-test-")));
@@ -36,7 +39,7 @@ const ANTHROPIC = [
 
 test("claudeCodeCatalog: without claude in PATH — an English source line, no models", async () => {
   await withPath({}, async () => {
-    assert.deepEqual(await claudeCodeCatalog({ anthropicModels: ANTHROPIC }), { program: "claude-code", models: [], source: "Claude Code: claude not found in PATH" });
+    assert.deepEqual(await claudeCodeCatalog({ anthropicModels: ANTHROPIC }), { program: "claude-code", models: [], source: "Claude Code: claude " + NOT_FOUND });
   });
 });
 
@@ -62,20 +65,20 @@ test("claudeCodeCatalog: no Anthropic catalog — aliases only, the reason is En
     assert.equal(plain.source, "Claude Code: aliases only, effort low..max");
     // anthropicModels not given: the catalog is read through the Pi SDK, and there is no pi in PATH here.
     const noPi = await claudeCodeCatalog();
-    assert.equal(noPi.source, "Claude Code: aliases only, effort low..max (Anthropic catalog from Pi unavailable: package @earendil-works/pi-coding-agent not found)");
+    assert.equal(noPi.source, "Claude Code: aliases only, effort low..max (Anthropic catalog from Pi unavailable: package @earendil-works/pi-coding-agent or @mariozechner/pi-coding-agent not found)");
     assert.equal(noPi.models.length, 4);
   });
 });
 
 test("codexCatalog: without codex in PATH — an English source line", async () => {
   await withPath({}, async () => {
-    assert.deepEqual(codexCatalog(), { program: "codex", models: [], source: "Codex: codex not found in PATH" });
+    assert.deepEqual(codexCatalog(), { program: "codex", models: [], source: "Codex: codex " + NOT_FOUND });
   });
 });
 
 test("piCatalog: without pi in PATH — an English source line", async () => {
   await withPath({}, async (root) => {
-    assert.deepEqual(await piCatalog({ cwd: root }), { program: "pi", models: [], source: "Pi: pi not found in PATH" });
+    assert.deepEqual(await piCatalog({ cwd: root }), { program: "pi", models: [], source: "Pi: pi " + NOT_FOUND });
   });
 });
 
@@ -110,5 +113,82 @@ test("discoverCatalogs: a known Pi registry gets an English source line", async 
     const { models, sources } = await discoverCatalogs({ cwd: root, piModels, programs: ["pi"] });
     assert.equal(models.length, 1);
     assert.deepEqual(sources, ["Pi: registry of the current Pi session — 1 models"]);
+  });
+});
+
+test("claudeCodeCatalog: claude only in a usual install folder — found, the source names the folder", async () => {
+  await withPath({}, async (root) => {
+    const folder = path.join(root, "local");
+    mkdirSync(folder);
+    writeFileSync(path.join(folder, "claude"), "#!/bin/sh\nexit 0\n");
+    chmodSync(path.join(folder, "claude"), 0o755);
+    process.env.ORCA_POD_BIN_DIRS = folder;
+    try {
+      const catalog = await claudeCodeCatalog({ anthropicModels: [] });
+      assert.equal(catalog.source, "Claude Code: aliases only, effort low..max [" + path.join(folder, "claude") + ", not in PATH]");
+      assert.equal(catalog.models.length, 4);
+    } finally {
+      process.env.ORCA_POD_BIN_DIRS = "";
+    }
+  });
+});
+
+// A live Codex sandbox run: pi cannot take its lock file in ~/.pi/agent, and node's last stderr line is its version.
+const SANDBOX_CRASH = [
+  "Warning: errors loading models.json:",
+  "Availability refresh: EPERM: operation not permitted, mkdir '/home/u/.pi/agent/auth.json.lock'",
+  "node:internal/process/promises:394",
+  "    triggerUncaughtException(err, true /* fromPromise */);",
+  "[Error: EPERM: operation not permitted, mkdir '/home/u/.pi/agent/auth.json.lock'] {",
+  "  code: 'EPERM',",
+  "}",
+  "",
+  "Node.js v24.21.0",
+].join("\n");
+
+test("failureReason: a node crash gives its error line, not the node version; EPERM is named as a sandbox", () => {
+  assert.equal(failureReason(SANDBOX_CRASH),
+    "Availability refresh: EPERM: operation not permitted, mkdir '/home/u/.pi/agent/auth.json.lock' — no write access (sandbox?): run the form with elevated permissions");
+  assert.equal(failureReason("boom"), "boom");
+  assert.equal(failureReason("TypeError: x is not a function\n    at y\nNode.js v22.1.0"), "TypeError: x is not a function");
+});
+
+test("piCatalog: pi crashes in a sandbox — the source line says why and what to do", async () => {
+  const stub = "cat >&2 <<'EOF'\n" + SANDBOX_CRASH + "\nEOF\nexit 1";
+  await withPath({ pi: stub }, async (root) => {
+    const catalog = await piCatalog({ cwd: root });
+    assert.deepEqual(catalog.models, []);
+    assert.match(catalog.source, /^Pi: pi --list-models unavailable \(pi exited with code 1: Availability refresh: EPERM: .* — no write access \(sandbox\?\): run the form with elevated permissions\)$/);
+  });
+});
+
+test("piCatalog: Pi before 0.74 prints the model table to stderr — it is read from there", async () => {
+  const stub = [
+    'if [ "$1" = "--list-models" ]; then',
+    '  echo "provider model context max-out thinking images" >&2',
+    '  echo "deepseek deepseek-v4-flash 1M 384K yes no" >&2',
+    "  exit 0",
+    "fi",
+    "exit 1",
+  ].join("\n");
+  await withPath({ pi: stub }, async (root) => {
+    const catalog = await piCatalog({ cwd: root });
+    assert.deepEqual(catalog.models.map((model) => model.id), ["deepseek-v4-flash"]);
+  });
+});
+
+test("piCatalog: an older Pi without --no-mcp — the RPC is started again without the flag", async () => {
+  // --list-models fails here, so the models can only come from the RPC answer.
+  const stub = [
+    'case " $* " in *" --no-mcp "*) echo "Error: Unknown option: --no-mcp" >&2; exit 1;; esac',
+    '[ "$1" = "--list-models" ] && exit 1',
+    "read request",
+    'echo \'{"type":"response","command":"get_available_models","success":true,"data":{"models":[{"provider":"deepseek","id":"deepseek-v4-flash","reasoning":true}]}}\'',
+    "sleep 5",
+  ].join("\n");
+  await withPath({ pi: stub }, async (root) => {
+    const catalog = await piCatalog({ cwd: root });
+    assert.deepEqual(catalog.models.map((model) => model.id), ["deepseek-v4-flash"]);
+    assert.match(catalog.source, /^Pi: RPC get_available_models — 1 models; /);
   });
 });
