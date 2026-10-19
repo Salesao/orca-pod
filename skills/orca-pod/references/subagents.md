@@ -191,9 +191,9 @@ worktrees, but only with **non-overlapping write scopes**:
   generated code, localizations) are edited only by the Integrator after the wave;
 - a Worker does not run package installation, code generation, formatting of the
   whole project, builds and full tests — these are shared side effects;
-- after the wave the Integrator checks `git status` against the scopes: a file
-  outside a scope — find out from the Worker and fix before the next wave (Git
-  writes are still forbidden).
+- after the wave the Integrator checks `git status` against the scopes (without Git — the files from the
+  Workers' reports, SKILL.md "Project without Git"): a file outside a scope — find out from the Worker and fix
+  before the next wave (Git writes are still forbidden).
 
 ## 5. Task for a child
 

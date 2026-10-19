@@ -25,15 +25,17 @@ decision the user made themselves.
    phones"), not by its brand; units become what the user sees ("about two thousand letters", not "2048
    bytes"); field and key names never appear, even in quotes; a label the user sees on the screen may be
    quoted once, with what it does. The same rules apply to the overview, the explanations and the lists at
-   the approval.
+   the approval. The one exception is the document itself: its absolute path goes on the document line
+   before the overview and into the approval (see "What to ask" and "Approval"), never into a card or a
+   question.
 2. **Language.** Talk in the user's language (under orca-pod, the `LANGUAGE:` line of your first prompt);
    the English examples here are translated, not copied. The card labels and the "(proposed)" marker are in
    the user's language from the first card, the same words for the whole blitz; ignore the tool's
    "(Recommended)".
 3. **Address.** Address the user the way they write to you; when it is unclear, the polite form; one form
    for the whole blitz.
-4. **Overview.** At most 120 plain words, printed before the first window, without a number; the
-   questions are numbered from 1.
+4. **Overview.** At most 120 plain words, printed before the first window right after the document line,
+   without a number; the questions are numbered from 1.
 5. **Windows.** Plain text inside a window; at most 4 questions per window and 8 questions per round; a
    fork is never decided by you; numbered text when there is no window.
 
@@ -129,10 +131,15 @@ card says the document does not decide it. Never state a guess as the Situation.
 type names, lists or values in a window: offer the candidates the document gives; if there are none,
 one free-answer question for that item, and anything further goes to chat.
 
+**The document line.** Before the overview (or the map), outside any window, print one line with the
+document's absolute path in the user's language ("Document: /home/ann/shop/docs/specs/update-design.md"),
+so the user can open it and check every card against it. The user never has to ask where the document is.
+
 Spec:
 
 1. **Overview** — printed before the first window, no question, at most 120 plain words: the situation,
-   the outcome, what is deliberately left out, and the risks without a choice.
+   the outcome, what is deliberately left out, and the risks without a choice. One phrase of it says that
+   the questions come from this document ("the questions below are the forks of the spec").
 2. **Scope** — a question only when something was deliberately left out: "What goes into this part?" with
    the sets as options, the proposed set first ("Update by button with rollback (proposed)" / "Also choose
    the version to roll back to").
@@ -155,10 +162,15 @@ Plan (after the spec is approved):
 2. There is no question per task: a task without a choice is part of the map.
 3. **Deviations** — every place where the plan changes the spec, with options named by their outcome
    ("Placeholders only (proposed)" / "Show the ready preview when there is one"), and every plan decision
-   with a real alternative. A refinement that only adds detail goes to the list at the approval.
+   with a real alternative. Before deciding there are none, walk through everything the plan adds to the
+   spec, not only what it changes: every new field, action and side effect ("the reset button also forgets
+   the step the user was on" is a change of behavior). An addition that changes what the user sees, gets or
+   can lose is a deviation; a refinement that only adds detail goes to the list at the approval.
 
 Your own calls that get no question (no real alternative, cheap if wrong, or already decided) are listed
-at the approval. No fork at all: the overview, then the approval window.
+at the approval. No fork at all: the document line, the overview (or the map), then one line in the user's
+language that says so ("Plan blitz: no forks and no deviations from the spec, so straight to the
+approval"), then the approval window. Without that line a blitz with no questions looks like no blitz.
 
 Length: one window holds 1–4 questions; one round asks at most 8 questions (two windows in Claude Code and
 Pi; one question per window in Codex). Questions that come back count toward the round's limit. With more
@@ -213,23 +225,30 @@ Rewrite the document after each round, by all its answers at once. Items keep th
 blitz; new items take the next free number, so "3 Rollback" is the same item in every round. Keep the item
 statuses (approved / open / new) in your context; write no service files.
 
+**Blitz log.** With each rewrite, add the round to a short section at the end of the document, titled in the
+user's language ("Blitz log"): one line per round with the items asked and what the answers changed, in
+plain words ("Round 1: asked 1–6; changed 3 Rollback — the database copy is restored together with the old
+program"; "Round 2: asked 3, 7; nothing changed"). It shows which version of the document each round asked
+about, since the rewrites replace the text. The log stays in the approved version; it is the only text the
+blitz adds that the user did not decide.
+
 ## Approval
 
 When nothing is open: print the full list again before every approval window, repeats included, and never
 "see above"; then a separate window with one question, "Do you approve the spec?" (or "the plan?").
 
-- Context, where the cards go: the overview (the outcome, the scope and the risks, or the map), the changes
-  of all rounds, and your own calls made without a question ("decided myself: …", every own call with its
+- Context, where the cards go: the document line (the absolute path), the overview (the outcome, the scope
+  and the risks, or the map), the changes of all rounds, and your own calls made without a question ("decided myself: …", every own call with its
   cost; group related calls, each group with its cost); the user's own decisions from the conversation or
   the document are not your calls. When this does not fit the window, print the full list in chat right
   before the window; the window itself always keeps the outcome and the most expensive own call with what
   the user will see, never only a pointer to the chat. In Pi plan for it from the start (`context` takes
-  600 characters): the window keeps the outcome, one or two risks and the most expensive own call.
+  600 characters): the window keeps the path, the outcome, one or two risks and the most expensive own call.
 - In Codex the approval is numbered text, not a window: the full list, then the question and its numbered
   options, in one message (its window closes by itself and its text is too short for the list).
 - Its tab has no number ("Approve"). The window has exactly these three options; no "Explain simpler"
   there: "Approve", "Read it in full first", "Back to question …"; when no question was asked, only the
-  first two. For "Back to question" the number goes in the own answer; that item reopens and another round
+  first two. The description of "Read it in full first" gives the document's absolute path. For "Back to question" the number goes in the own answer; that item reopens and another round
   runs; a single item reopens at once; if it comes without a number, ask which one in a window with the
   items as options: at most four items, the most expensive first, the rest by number in the own answer.
 - A clear correction to the overview or to an own call is applied at once, shown under "what changed", and
@@ -258,4 +277,5 @@ window that was interrupted before an answer approves nothing.
 ## Under orca-pod
 
 The Planner runs the blitz before the spec approval, before the plan approval, and before the approval of
-a `PLAN_REVISION_REQUIRED` revision, where it covers only the changed items.
+a `PLAN_REVISION_REQUIRED` revision, where it covers only the changed items. The document line repeats the
+path the Planner printed when it wrote the document (`SPEC WRITTEN:` / `PLAN WRITTEN:`).

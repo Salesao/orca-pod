@@ -13,7 +13,7 @@ terminals; its command is `orca`). Use it when a task needs an approved plan bef
 ```
 
 - **Input:** a path to a RAF task file (your raw, unstructured spec in your own words; a path takes priority) or a non-empty text description of the task.
-- **Output:** the spec and the plan in `docs/superpowers/` of your project, code changes, review or self-check reports in `<git-root>/.orca-pod/reports/<planVersion>/` (`<planVersion>` is the version of the approved plan) and the final status.
+- **Output:** the spec and the plan in `docs/superpowers/` of your project, code changes, review or self-check reports in `<project-root>/.orca-pod/reports/<planVersion>/` (`<planVersion>` is the version of the approved plan) and the final status.
 
 For the overview, installation and requirements, see the [repository README](../../README.md).
 This file only describes the skill itself. The full workflow and the rules that every role follows are in
@@ -69,8 +69,9 @@ The roles, models and profiles are all set in `orca-pod.yaml`.
 
 ## Requirements
 
-- A project Git repository and `.orca-pod/orca-pod.yaml` — one per repository, in the
-  main checkout; the `.orca-pod/` folder is added to `.gitignore` when the project has one. The file is created by
+- A project folder (Git is optional) and `.orca-pod/orca-pod.yaml` — one per repository, in the
+  main checkout, or one in the project folder without Git. Without Git the review reads the changed files from the
+  Implementer's list instead of a diff, so a change outside that list goes unseen. The `.orca-pod/` folder is added to `.gitignore` when the project has one. The file is created by
   `/orca-pod-setup`; the old `.orca-pipeline/` and `orca-pipeline.yaml` are migrated
   automatically.
 - Orca with the `orca` command, and the `orca-cli` skill. Orca installs the skill itself:
@@ -130,7 +131,7 @@ orca-pod/
 ```
 
 Review and self-check reports are written into the project, not into the skill
-folder: `<git-root>/.orca-pod/reports/<planVersion>/` (the format is in
+folder: `<project-root>/.orca-pod/reports/<planVersion>/` (the format is in
 `references/review-protocol.md`, section 7). The `.orca-pod/` folder is added to the
 project's `.gitignore` by `orca-pod-setup/scripts/ensure-gitignore.sh`, and only if a
 `.gitignore` already exists; the script does not create the file.

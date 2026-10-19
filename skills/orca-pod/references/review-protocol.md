@@ -82,7 +82,8 @@ stage if the Planner split the plan into stages). The Reviewer:
 
 1. **Snapshot.** Save the batch patch into the reports directory:
    `<stage>-attempt1.patch` = `git diff <baseline HEAD> -- <batch files>` plus
-   new files via `git diff --no-index /dev/null <file>`. Do not attribute files that
+   new files via `git diff --no-index /dev/null <file>`. Without Git there is no patch: review the files
+   from the request as they are now (SKILL.md, "Project without Git"). Do not attribute files that
    were dirty before the start (the list from the request) to the batch without
    evidence. Do not compute SHA/digest tuples: the plan version, stage
    and attempt are sufficient identity. The `.orca-pod/` folder (pipeline
@@ -125,7 +126,8 @@ is strictly:
    verdict `CLOSED` / `NOT_FIXED` / `PARTIAL` with evidence. `DISPUTED` — either
    `WITHDRAWN` with a reason, or it stays with a counter-argument.
 2. **Fix regressions.** Save `<stage>-attempt<N>.patch` and
-   `<stage>-attempt<N>.delta` = `diff -u attempt<N-1>.patch attempt<N>.patch`.
+   `<stage>-attempt<N>.delta` = `diff -u attempt<N-1>.patch attempt<N>.patch` (without Git the delta is the
+   places from the `FIXED` answers and the list of other changes).
    Look for new problems **only inside the delta** (and in code the delta really
    affects through calls).
 3. **No "moving the goalposts".** A new finding on code outside the delta that
@@ -181,7 +183,7 @@ history:
 
 ## 7. Reports
 
-Directory: `<git-root>/.orca-pod/reports/<planVersion>/` — in the project, not in
+Directory: `<project-root>/.orca-pod/reports/<planVersion>/` — in the project, not in
 the skill folder. `.orca-pod/` is added to the project's `.gitignore` if there is
 one, and is not part of patch snapshots, changed-file lists and the `git status`
 check. Reports are immutable: a new attempt is a new file. The Reviewer and the Chief

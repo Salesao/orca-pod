@@ -149,8 +149,44 @@ test("only changes of the spec are asked; a refinement that only adds detail goe
   assert.match(ask, /a refinement that only adds detail goes to the list at the approval/i);
 });
 
-test("a document with no fork at all: the overview, then the approval window", () => {
-  assert.match(section("What to ask"), /no fork at all[^.]*the overview, then the approval window/i);
+// Planner feedback 2026-10-18: a plan blitz with no questions looked like no blitz at all ("And where is the plan blitz?").
+test("a document with no fork at all: the overview, then a line that says there are no forks, then the approval window", () => {
+  const ask = section("What to ask");
+  assert.match(ask, /No fork at all: the document line, the overview \(or the map\), then one line[^.]*says so[^.]*\), then the approval window/);
+  assert.match(ask, /no forks and no deviations from the spec, so straight to the approval/i);
+});
+
+// Planner feedback 2026-10-18: the user could not find the spec the blitz asked about, and rule 1 read as "never show a path".
+test("the document line: the absolute path before the overview, outside any window; rule 1 allows it and only it", () => {
+  const ask = section("What to ask");
+  assert.match(ask, /\*\*The document line\.\*\* Before the overview \(or the map\), outside any window/);
+  assert.match(ask, /absolute path/);
+  inOrder(flat(SKILL), ["The one exception is the document itself", "never into a card or a question"]);
+  assert.match(section("Hard rules"), /printed before the first window right after the document line/);
+});
+
+test("the overview says the questions come from this document", () => {
+  assert.match(section("What to ask"), /\*\*Overview\*\*.{0,400}the questions come from this document/i);
+});
+
+test("approval: the context and the \"Read it in full first\" option carry the document's path", () => {
+  const approval = section("approval");
+  assert.match(approval, /Context, where the cards go: the document line \(the absolute path\)/);
+  assert.match(approval, /The description of "Read it in full first" gives the document's absolute path/);
+});
+
+test("rounds: a blitz log at the end of the document, one line per round, kept in the approved version", () => {
+  const rounds = section("round");
+  assert.match(rounds, /\*\*Blitz log\.\*\*/);
+  assert.match(rounds, /one line per round with the items asked and what the answers changed/);
+  assert.match(rounds, /stays in the approved version/);
+  assert.match(rounds, /write no service files/);
+});
+
+test("plan deviations: everything the plan adds is walked through, an addition that changes what the user sees is a deviation", () => {
+  const ask = section("What to ask");
+  assert.match(ask, /walk through everything the plan adds to the spec, not only what it changes/i);
+  assert.match(ask, /An addition that changes what the user sees, gets or can lose is a deviation/);
 });
 
 test("risks without a choice are in the overview and at the approval; corrections to the overview become open items", () => {

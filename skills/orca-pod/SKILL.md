@@ -151,11 +151,12 @@ messages. Code, commands, paths and identifiers stay as they are.
 The only source of provider, model, thinking, helper enablement and the limit of
 concurrent subagents is the active `orca-pod.yaml`. There is one per repository:
 `.orca-pod/orca-pod.yaml` of the main checkout; a linked worktree's own file in
-`.orca-pod/` wins. The folder is added to `.gitignore` only when the project already has one
+`.orca-pod/` wins. Git is optional: outside a Git repository it is `.orca-pod/orca-pod.yaml` of the
+project folder (section "Project without Git"). The folder is added to `.gitignore` only when the project already has one
 (`ensure-gitignore.sh` never creates the file), so the file stays out of git; without a
 `.gitignore` the folder is not ignored, and the user adds `.orca-pod/` before committing. The old
 layouts — the `.orca-pipeline/` directory (with `orca-pipeline.yaml` and `reports/`) and
-the file `<git-root>/orca-pipeline.yaml` — are migrated by `config-location.mjs migrate`: the
+the file `<project-root>/orca-pipeline.yaml` — are migrated by `config-location.mjs migrate`: the
 directory entirely into `.orca-pod/` (inside it `orca-pipeline.yaml` becomes
 `orca-pod.yaml`), the file into `.orca-pod/orca-pod.yaml`; the launcher does not move
 files, and when the new config is missing it suggests the migration command. The
@@ -165,9 +166,25 @@ the profile's `default_provider`, then the root one, then pi. `use_subagents` is
 unquoted boolean, false by default.
 
 If the file is missing, invoke [orca-pod-setup](../orca-pod-setup/SKILL.md)
-in the Coordinator (Git root, this workflow, [template](assets/orca-pod.yaml),
+in the Coordinator (project root, this workflow, [template](assets/orca-pod.yaml),
 task source, stack). Do not silently replace an existing file/directory/link. An
 invalid config stops the workflow; name the field and the setup path.
+
+### Project without Git
+
+`<project-root>` is the Git root, or the project folder outside Git: `config-location.mjs where` returns
+`git: false`, and a role finds it out itself when `git rev-parse` fails in the project. Without Git the
+pipeline runs the same way, but nothing records the changes, so they are tracked by lists instead:
+
+- Coordinator: no `.gitignore` step; `configTracked` is always false.
+- Implementer: no `HEAD` and no `git status`. The changed files of a stage are the files from the workers'
+  reports plus your own integration edits; check them against the `writeScope`s by those reports. The
+  REVIEW_REQUEST (and the self-check) gets the list TODO → files with `baseline: no Git`.
+- Reviewer and Chief Reviewer: there is no patch snapshot; review the listed files as they are now. A repeat
+  round checks the places named in the `FIXED <path:line>` answers and the list of other changes. The report
+  says `no Git: no patch, the files from the request were reviewed`.
+- What is lost: a change outside the listed files is not visible to the review. The final report says so.
+- `test` mode needs Git anyway: the sandbox is its own Git repository with a baseline commit.
 
 ### Schema
 
@@ -268,7 +285,7 @@ Review mode: <full | reviewer | chief | self — short explanation>
 Concurrent subagents: up to <maxSubagents> per role (max_subagents; no launch budget)
 Full access: yes — Codex and Claude Code without confirmations and sandbox (full_access) | no
 Child settings by role: <full JSON; null keeps native defaults>
-Review reports: <absolute path = <git-root>/.orca-pod/reports>
+Review reports: <absolute path = <project-root>/.orca-pod/reports>
 ```
 
 ## Subagents: policy and limits
@@ -390,7 +407,7 @@ stop and show the user the full payload.
 ## Terminal setup and Coordinator exit
 
 First add `.orca-pod/` to the project's `.gitignore` (in `test` — the sandbox's):
-`<skill-dir>/../orca-pod-setup/scripts/ensure-gitignore.sh <git-root>`. The script is
+`<skill-dir>/../orca-pod-setup/scripts/ensure-gitignore.sh <project-root>` (skip it without Git). The script is
 idempotent and changes only an existing `.gitignore`; this is the only project edit
 the Coordinator makes. Report `ADDED` to the user in one line, `OK` and `SKIP` —
 silently. No script — a warning, not a stop.
@@ -412,7 +429,7 @@ do not scan or adopt the user's live terminals. Terminals — only for the roles
 Role keys: planner, implementer, reviewer, chief_reviewer. Create is not idempotent:
 on a lost response check `terminal show` before retrying. The configured reviewers are
 prepared at bootstrap but receive work only on a review request.
-Pass the path `<git-root>/.orca-pod/reports/`, the profile, `reviewMode`, the subagent
+Pass the path `<project-root>/.orca-pod/reports/`, the profile, `reviewMode`, the subagent
 limit (`maxSubagents`) and `LANGUAGE` in the first prompts.
 
 Without a task source after the preflight, report `TERMINALS READY`: the next input is
@@ -427,7 +444,7 @@ Planner: handle=<handle>; ptyId/incarnationId if available
 Implementer: handle=<handle>; Reviewer: handle=<handle> | not configured; Chief Reviewer: handle=<handle> | not configured
 Review mode: <reviewMode — who accepts stages and who issues the final verdict>
 Skills: <role → exact name/source>
-Review reports: <absolute path = <git-root>/.orca-pod/reports>
+Review reports: <absolute path = <project-root>/.orca-pod/reports>
 Next handoff: Planner → Implementer.
 ```
 
@@ -501,7 +518,10 @@ brainstorming (Pi and Codex — `$superpowers:brainstorming`, Claude Code —
 Researcher — as needed; Oracle — by the rules above.
 
 Write the specification without Git writes: the RAF path or the verbatim
-TASK DESCRIPTION, constraints, agreed requirements. Inline self-review for the task,
+TASK DESCRIPTION, constraints, agreed requirements. Right after writing it, print its path on a separate line,
+`SPEC WRITTEN: <absolute path>`, so the user can open the document the blitz will ask about. If Git does not
+show the file (no Git, or its folder is ignored: `git check-ignore -q <path>` succeeds), add one line that it
+will not appear among the changes in git or the IDE and is opened by this path. Inline self-review for the task,
 criteria and feasibility → `SELF-REVIEW: no issues` or `SELF-REVIEW: fixed <list>` →
 plan-blitz over the spec (Pi — `/skill:plan-blitz`, Claude Code — `Skill plan-blitz`, Codex —
 `$plan-blitz`): rounds of multiple-choice questions whose last window is the user approval in the
@@ -532,6 +552,7 @@ request"): with `not requested` the plan has no test TODOs, no failing-test step
 no edits to existing tests; with `requested` — only the tests the user asked for, and
 no new test framework without their consent. Record the resolved settings and skill sources.
 
+Print `PLAN WRITTEN: <absolute path>` after writing the plan, with the same line about Git when it applies.
 Inline cross-review of the plan against the spec (scope, files, order, waves, risks,
 checks) → plan-blitz over the plan, whose last window is the user approval. The approved
 spec/plan are immutable versions with
@@ -540,6 +561,7 @@ full Implementer contract and:
 
 ```text
 IMPLEMENTATION HANDOFF SENT — PLANNER IDLE
+Spec path: <immutable absolute path>
 Plan path: <immutable absolute path>; Plan version: <planVersion>
 Implementer: handle=<handle>; Reviewer: handle=<handle> | not configured; Chief Reviewer: handle=<handle> | not configured
 Planner is available for a verified PLAN_REVISION_REQUIRED; Coordinator has exited.
@@ -572,7 +594,8 @@ author's reasoning, keeps the analyzers' long output out of the Implementer's co
 and returns only findings. After the last wave of each stage:
 
 1. Wait for the children, stop writing, save the stage's patch snapshot in
-   `.orca-pod/reports/<planVersion>/` (like a reviewer, review-protocol §3 item 1).
+   `.orca-pod/reports/<planVersion>/` (like a reviewer, review-protocol §3 item 1; without Git there is none,
+   and the `verifier` gets the list of changed files).
 2. Launch `verifier`: the changed files and the patch, the stage's acceptance criteria,
    the **exact** static-check commands from `verificationChecks` (analyzer,
    linter, typecheck — for example `flutter analyze`, `dart analyze`, `tsc --noEmit`,
@@ -605,7 +628,7 @@ independent review.
 
 Read the plan, the selected skills, the contract and [subagents.md](references/subagents.md).
 Record the baseline once per stage: `HEAD=<sha>` and the list of files already dirty
-before the start (`git status --porcelain`). Do not count `.orca-pod/` in the baseline and in
+before the start (`git status --porcelain`); without Git — section "Project without Git". Do not count `.orca-pod/` in the baseline and in
 `git status` checks: these are pipeline reports, not project changes.
 
 **Waves.** For each wave of the current stage:
@@ -699,7 +722,7 @@ output in its own terminal. A previous FINAL_APPROVED does not cover new changes
 
 ## Review reports
 
-`<git-root>/.orca-pod/reports/<planVersion>/` — in the project, not in the skill
+`<project-root>/.orca-pod/reports/<planVersion>/` — in the project, not in the skill
 folder. The Reviewer creates the subdirectory at the first verdict; `ensure-gitignore.sh`
 adds the `.orca-pod/` folder to the project's `.gitignore` only when the project already
 has one (the script never creates the file); without a `.gitignore` the reports are not

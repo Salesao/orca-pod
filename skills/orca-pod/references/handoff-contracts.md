@@ -32,7 +32,7 @@ PROFILE: <name>; CONCURRENT SUBAGENTS: up to <N> per role (max_subagents; no lau
 LANGUAGE: <tag>
 SKILL: <absolute path orca-pod/SKILL.md — read it first>
 SETTINGS: <resolved settings of the configured roles (provider/model/thinking/use_subagents) and their children>
-REVIEW REPORTS: <absolute path = <git-root>/.orca-pod/reports>
+REVIEW REPORTS: <absolute path = <project-root>/.orca-pod/reports>
 REQUIRED PLANNER SKILLS: using-superpowers — <absolute path SKILL.md>; plan-blitz — <absolute path SKILL.md | not installed>.
 ADDITIONAL SKILLS: <names/sources per role; for an empty set, say so>.
 
