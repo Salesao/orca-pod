@@ -1,6 +1,6 @@
 ---
 name: verifier
-description: Orca pipeline helper for the Implementer when no reviewers are configured. Read-only self-check — runs only the static checks named in the task (analyzer, linter, typecheck), maps acceptance criteria to code and returns classified findings. Never edits files and never approves.
+description: Orca pipeline helper for the Implementer, only when no reviewers are configured (the self review mode); with a Reviewer or Chief Reviewer the Implementer does not launch it. Read-only self-check — runs only the static checks named in the task (analyzer, linter, typecheck), maps acceptance criteria to code and returns classified findings. Never edits files and never approves.
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit, Agent
 model: inherit

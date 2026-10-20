@@ -112,7 +112,7 @@ try {
     process.exit(0);
   }
   const settings = resolveRole(options.role, options.profileName);
-  const [command, ...args] = providerCommand(settings, { role: settings.role, maxSubagents: settings.maxSubagents, skillDir: SKILL_DIR, fullAccess: settings.fullAccess });
+  const [command, ...args] = providerCommand(settings, { role: settings.role, maxSubagents: settings.maxSubagents, skillDir: SKILL_DIR, fullAccess: settings.fullAccess, reviewMode: settings.reviewMode });
   settings.warnings = [];
   // PATH first, then the usual install folders; a CLI found only there is started by its absolute path.
   const executable = options.shouldValidate ? null : findExecutable(command);

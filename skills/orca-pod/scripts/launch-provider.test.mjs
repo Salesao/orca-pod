@@ -147,9 +147,10 @@ test("A repeated setting is rejected", () => {
 const IMPLEMENTER_GUARD = roleGuard("implementer");
 for (const [providerName, expectedArguments] of [
   ["pi", ["-a", "--model", "zai/glm-5.3-flash", "--thinking", "high", "--append-system-prompt", IMPLEMENTER_GUARD]],
-  // Codex: effort, the profile's limit of concurrent subagents, the implementer role's orca_* agents and the role guard.
+  // Codex: effort, the profile's limit of concurrent subagents, the implementer role's orca_* agents (no orca_verifier:
+  // the profile has a Reviewer) and the role guard.
   ["codex", ["--model", "zai/glm-5.3-flash", "--config", 'model_reasoning_effort="high"', "--config", "agents.max_concurrent_threads_per_session=6",
-    ...["worker", "scout", "researcher", "verifier"].flatMap((key) => ["--config",
+    ...["worker", "scout", "researcher"].flatMap((key) => ["--config",
       `agents.orca_${key}.config_file=${JSON.stringify(path.join(SKILL_DIR, "agents", "codex", `${key}.toml`))}`]),
     "--config", `developer_instructions=${JSON.stringify(IMPLEMENTER_GUARD)}`]],
   ["claude-code", ["--model", "zai/glm-5.3-flash", "--effort", "high", "--append-system-prompt", IMPLEMENTER_GUARD]],

@@ -89,7 +89,7 @@ The YAML names are the same in all programs. Claude Code uses them as is; Pi run
 | Role | Helpers | Why |
 | --- | --- | --- |
 | Planner | `scout`, `researcher`, `oracle` | parallel code recon; external docs; a second opinion on a contested decision (≤ 1 per plan) |
-| Implementer | `worker`, `scout`, `researcher`, `verifier` | a worker for each independent TODO of a wave (no more than `max_subagents` at once), fixes in groups; `verifier` — the self-check in `self` mode (pi-lens in Pi, static analysis, checking the criteria) |
+| Implementer | `worker`, `scout`, `researcher`, `verifier` | a worker for each independent TODO of a wave (no more than `max_subagents` at once), fixes in groups; `verifier` — only the self-check of `self` mode (pi-lens in Pi, static analysis, checking the criteria); with reviewers the Implementer does not launch it |
 | Reviewer | `reviewer`, `lens-checker` (Pi only) | parallel review lanes by TODO/seams/delta (no more than `max_subagents`); type-check |
 | Chief Reviewer | `reviewer`, `evidence-auditor`, `lens-checker` (Pi only) | lanes by areas of the whole code; matching the criteria to the evidence (≤ 1 per attempt) |
 

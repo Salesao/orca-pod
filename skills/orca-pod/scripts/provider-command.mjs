@@ -1,5 +1,6 @@
 // Launch command of a pipeline role in its provider (Pi, Claude Code, Codex, OMP).
 // Codex: effort, the limit of concurrent subagents and the orca_* agents from agents/codex/ — only in the role's session.
+// The Implementer's orca_verifier is the self-check of the self mode: with reviewers it is not registered.
 // The role guard is the session's system instruction: a role that has read SKILL.md does not execute the Coordinator steps.
 // fullAccess (the profile's full_access) removes confirmation prompts and the sandbox for Codex and Claude Code.
 // A Codex Planner asks the plan-blitz questions through request_user_input, available in the default mode only behind a feature.
@@ -21,16 +22,17 @@ export function roleGuard(role) {
     + "Wait for the first prompt and work only from the section of your own role.";
 }
 
-function codexAgentFlags(settings, role, skillDir) {
+function codexAgentFlags(settings, role, skillDir, reviewMode) {
   if (!settings.shouldUseSubagents) return ["--config", "agents.enabled=false"];
   const wanted = new Set([...(ROLE_AGENTS[role] ?? []), ...Object.keys(settings.subagentSettings ?? {})]);
+  if (role === "implementer" && reviewMode && reviewMode !== "self") wanted.delete("verifier");
   return CODEX_AGENT_KEYS.filter((key) => wanted.has(key)).flatMap((key) => [
     "--config", `agents.${codexAgentName(key)}.config_file=${tomlString(path.join(skillDir, "agents", "codex", `${key}.toml`))}`,
   ]);
 }
 
 /** Role launch argv: [executable, ...args]. */
-export function providerCommand(settings, { role, maxSubagents, skillDir, fullAccess = false }) {
+export function providerCommand(settings, { role, maxSubagents, skillDir, fullAccess = false, reviewMode = null }) {
   const guard = roleGuard(role);
   switch (settings.provider) {
     case "pi": return ["pi", "-a", "--model", settings.model, "--thinking", settings.thinking, "--append-system-prompt", guard];
@@ -38,7 +40,7 @@ export function providerCommand(settings, { role, maxSubagents, skillDir, fullAc
       "codex", "--model", settings.model,
       "--config", `model_reasoning_effort=${tomlString(settings.thinking)}`,
       "--config", `agents.max_concurrent_threads_per_session=${maxSubagents}`,
-      ...codexAgentFlags(settings, role, skillDir),
+      ...codexAgentFlags(settings, role, skillDir, reviewMode),
       ...(role === "planner" ? ["--enable", CODEX_ASK_FEATURE] : []),
       "--config", `developer_instructions=${tomlString(guard)}`,
       ...(fullAccess ? ["--dangerously-bypass-approvals-and-sandbox"] : []),

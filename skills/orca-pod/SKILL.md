@@ -27,8 +27,8 @@ instruction: Codex — `developer_instructions`, Pi and Claude Code —
 ```text
 Coordinator  config → profile + skills → role terminals → Planner assignment → exit
 Planner      spec + plan (TODOs with dependsOn/writeScope, waves, stages) → approvals → Implementer
-Implementer  integrator: wave → parallel Workers → integration → … → checks
-             → one REVIEW_REQUEST for the whole stage
+Implementer  integrator: wave → parallel Workers → integration → … → the plan's checks
+             (no self-review) → one REVIEW_REQUEST for the whole stage
 Reviewer     parallel review-lanes → registry R<n> → CHANGES_REQUESTED for blocking
              items only ↔ Implementer (≤ 3 attempts) → APPROVED → Chief Reviewer
 Chief        all code + Reviewer reports → C<n> ↔ Implementer (≤ 2 attempts) → FINAL_APPROVED
@@ -99,6 +99,14 @@ the new Orca API or an alternative orchestrator are not used.
 - Before review the Integrator waits for all children and stops side effects and
   writing. While the review runs, writing is forbidden; changing code during review
   invalidates the verdict.
+- **The reviewers check the code.** With a Reviewer or Chief Reviewer (`full`,
+  `reviewer`, `chief`) the Implementer does not review its own code: before
+  REVIEW_REQUEST it runs only the plan's `verificationChecks` and fixes what they
+  report — no `verifier`, review or audit lanes and no reading the diff in search of
+  defects. Finding defects is the stage reviewer's job; a self-audit duplicates the
+  review and delays the request. This overrides the review steps of
+  `subagent-driven-development` and `requesting-code-review`. The self-check through
+  `verifier` is only for `self` mode.
 - Reviewer, Chief Reviewer and their lanes work read-only.
 - Only `BLOCKER`/`MAJOR` on the review-protocol scale block; unlikely and
   non-critical findings are recorded but do not extend the cycle.
@@ -320,7 +328,7 @@ uses the role's own tsserver and costs nothing. Details and the fallback —
 | Role | Helpers and purpose | Concurrently | Rules |
 | --- | --- | --- | --- |
 | Planner | `scout` (parallel by code area), `researcher` as needed, `oracle` for a contested decision | up to N | oracle ≤ 1 per plan version |
-| Implementer | `worker` for each TODO of a wave and for fix groups; `scout`/`researcher` for clarifications; `verifier` — self-check in `self` mode | up to N in total; verifier — up to 3 of them (in Pi — 1, the pi-lens budget) | one worker per TODO/group per attempt; retry of a failed one — 1 time; one verifier set per self-check attempt |
+| Implementer | `worker` for each TODO of a wave and for fix groups; `scout`/`researcher` for clarifications; `verifier` — only the self-check of `self` mode, not launched with reviewers | up to N in total; verifier — up to 3 of them (in Pi — 1, the pi-lens budget) | one worker per TODO/group per attempt; retry of a failed one — 1 time; one verifier set per self-check attempt |
 | Reviewer | `reviewer`-lanes by TODO/seams/delta; `lens-checker` (Pi) | up to N | one set of lanes per attempt |
 | Chief Reviewer | `reviewer`-lanes by area, `evidence-auditor`, `lens-checker` (Pi) | up to N | one set per attempt; evidence-auditor ≤ 1 per attempt |
 
@@ -587,6 +595,8 @@ without sending FINAL_READY. `evidence-auditor` — if this role has it.
 
 ### Implementer self-check (`self` mode)
 
+Only in `self` mode: with a Reviewer or Chief Reviewer the Implementer goes from the
+checks straight to REVIEW_REQUEST (Invariants, "The reviewers check the code").
 There is no independent review, so the check is static and by criteria. With
 `use_subagents: true` the Implementer **does not check itself** but assigns this to the
 `verifier` subagent ([subagents.md](references/subagents.md)): it does not see the
@@ -649,8 +659,12 @@ before the start (`git status --porcelain`); without Git — section "Project wi
 With `use_subagents: false` or without a `worker` — the same waves sequentially inline.
 
 **Checks.** After the last wave of the stage (or only of the last stage — as
-specified in the plan) run the approved `verificationChecks`, fix what is found,
-record the actual commands/results/skipped with reasons. Tests — only as the plan's
+specified in the plan) run the approved `verificationChecks` yourself, fix what they
+report, record the actual commands/results/skipped with reasons. These are the plan's
+commands, not a review: with a Reviewer or Chief Reviewer do not launch `verifier`,
+review or audit lanes and do not read the diff in search of defects (Invariants, "The
+reviewers check the code"); `scout` and `researcher` clarify assignments, they do not
+audit finished code. Tests — only as the plan's
 `tests:` line allows (Invariants, "Tests only on request"): with `not requested` neither
 you nor the workers write, change or run tests or follow TDD, a worker's task carries
 `Tests: not requested`, and the report lists tests as skipped — not requested.

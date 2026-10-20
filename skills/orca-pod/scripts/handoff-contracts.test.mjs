@@ -444,3 +444,25 @@ test("test mode: TASK.md asks for tests, so the plan says tests: requested", () 
   assert.match(SKILL.replace(/\s+/g, " "), /`TASK.md` asks for tests \(item 6\), so the plan says `tests: requested`/);
   assert.match(EXPECTED, /`tests: requested` \(TASK\.md item 6\)/);
 });
+
+// A full-mode Implementer launched six verifier audits of its stage before REVIEW_REQUEST, and the user asked
+// "isn't the reviewer supposed to check the code?" (2026-10-21): with reviewers the Implementer runs only the plan's checks.
+test("with reviewers the Implementer does not review its own code: invariant, Checks step, contract, helpers, test mode", () => {
+  const flat = SKILL.replace(/\s+/g, " ");
+  assert.match(flat, /\*\*The reviewers check the code\.\*\* With a Reviewer or Chief Reviewer \(`full`, `reviewer`, `chief`\) the Implementer does not review its own code: before REVIEW_REQUEST it runs only the plan's `verificationChecks`/);
+  assert.match(flat, /no `verifier`, review or audit lanes and no reading the diff in search of defects/);
+  assert.match(flat, /This overrides the review steps of `subagent-driven-development` and `requesting-code-review`/);
+  assert.match(flat, /`verifier` — only the self-check of `self` mode, not launched with reviewers/);
+  const integrator = skillSection("Implementer = Integrator").replace(/\s+/g, " ");
+  assert.match(integrator, /run the approved `verificationChecks` yourself, fix what they report/);
+  assert.match(integrator, /with a Reviewer or Chief Reviewer do not launch `verifier`, review or audit lanes/);
+  assert.match(skillSection("Review modes").replace(/\s+/g, " "), /Only in `self` mode: with a Reviewer or Chief Reviewer the Implementer goes from the checks straight to REVIEW_REQUEST/);
+  assert.match(section("First Implementer contract").replace(/\s+/g, " "), /With reviewers do not review your own code: no verifier, review or audit lanes before REVIEW_REQUEST — finding defects is the reviewer's job/);
+  assert.match(SUBAGENTS, /\| Implementer — self-check, `self` mode only \|/);
+  assert.match(SUBAGENTS.replace(/\s+/g, " "), /The Implementer gets `orca_verifier` only in `self` mode/);
+  for (const file of ["claude/verifier.md", "codex/verifier.toml", "pi/verifier.md"]) {
+    const text = readFileSync(new URL(`../agents/${file}`, import.meta.url), "utf8");
+    assert.match(text, /only (when no reviewers are configured|without reviewers) \(the self review mode\)/, file);
+  }
+  assert.match(EXPECTED, /no `verifier` or audit lanes/);
+});

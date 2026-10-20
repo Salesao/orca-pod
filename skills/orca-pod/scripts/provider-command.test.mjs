@@ -27,14 +27,27 @@ test("codex: use_subagents false → agents.enabled=false and no config_file", (
   assert.equal(values.some((value) => value.includes(".config_file=")), false);
 });
 
-test("codex: implementer registers orca_worker, orca_scout, orca_researcher, orca_verifier and does not register lens-checker", () => {
-  const values = flagValues(providerCommand(codexRole(), { role: "implementer", maxSubagents: 6, skillDir: SKILL_DIR }));
+test("codex: a self-mode implementer registers orca_worker, orca_scout, orca_researcher, orca_verifier and does not register lens-checker", () => {
+  const values = flagValues(providerCommand(codexRole(), { role: "implementer", maxSubagents: 6, skillDir: SKILL_DIR, reviewMode: "self" }));
   const registered = values.filter((value) => value.includes(".config_file=")).map((value) => value.split(".")[1]);
   assert.deepEqual(registered, ["orca_worker", "orca_scout", "orca_researcher", "orca_verifier"]);
   assert.ok(values.includes(`agents.orca_worker.config_file=${JSON.stringify(path.join(CODEX_AGENTS_DIR, "worker.toml"))}`));
   const chief = flagValues(providerCommand(codexRole(), { role: "chief_reviewer", maxSubagents: 6, skillDir: SKILL_DIR }));
   assert.equal(chief.some((value) => value.includes("lens")), false);
   assert.ok(chief.some((value) => value.startsWith("agents.orca_evidence_auditor.config_file=")));
+});
+
+// A full-mode Implementer audited its own stage with six verifiers before REVIEW_REQUEST (2026-10-21);
+// with reviewers the code is theirs to check, so a Codex Implementer does not get orca_verifier at all.
+test("codex: with reviewers the implementer gets no orca_verifier, even one listed in the config", () => {
+  const configured = codexRole({ subagentSettings: { verifier: { model: "inherit", thinking: "inherit" } } });
+  for (const reviewMode of ["full", "reviewer", "chief"]) {
+    for (const settings of [codexRole(), configured]) {
+      const values = flagValues(providerCommand(settings, { role: "implementer", maxSubagents: 6, skillDir: SKILL_DIR, reviewMode }));
+      const registered = values.filter((value) => value.includes(".config_file=")).map((value) => value.split(".")[1]);
+      assert.deepEqual(registered, ["orca_worker", "orca_scout", "orca_researcher"], reviewMode);
+    }
+  }
 });
 
 test("codex: a helper from the config outside ROLE_AGENTS is registered too", () => {

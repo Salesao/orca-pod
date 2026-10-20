@@ -27,7 +27,7 @@ agents `orca-<key>` (`worker` → `orca-worker`, §2a); `researcher`,
 | `oracle` | read-only | `agents/pi/orca-oracle.md` (no extensions) | `agents/claude/oracle.md` | `orca_oracle` | Planner — contested decision |
 | `evidence-auditor` | read-only | `agents/pi/orca-evidence-auditor.md` (no extensions) | `agents/claude/evidence-auditor.md` | `orca_evidence_auditor` | Chief — criteria ↔ evidence |
 | `lens-checker` | read-only | `agents/pi/lens-checker.md` | — (no pi-lens; the step is omitted) | — (no pi-lens) | Reviewer, Chief — type-check |
-| `verifier` | read-only, runs only the commands from the task | `agents/pi/verifier.md` (with pi-lens) | `agents/claude/verifier.md` (without pi-lens) | `orca_verifier` (without pi-lens) | Implementer — self-check in `self` mode |
+| `verifier` | read-only, runs only the commands from the task | `agents/pi/verifier.md` (with pi-lens) | `agents/claude/verifier.md` (without pi-lens) | `orca_verifier` (without pi-lens) | Implementer — self-check, `self` mode only |
 
 `*` The bundled Pi `researcher` has `write` (it writes `research.md`), which does
 not guarantee read-only: its task must forbid writing in the project. For review
@@ -152,8 +152,8 @@ the names in the table are purposes, not a promise of installed agents.
 Codex's built-in subagents. When a role starts, the launcher registers its
 `orca_*` agents (`-c agents.orca_<name>.config_file=…`, the `agents/codex/*.toml`
 files) and the limit `agents.max_concurrent_threads_per_session=N`; with
-`use_subagents: false` — `agents.enabled=false`. In regular Codex sessions these
-agents do not exist.
+`use_subagents: false` — `agents.enabled=false`. The Implementer gets `orca_verifier`
+only in `self` mode. In regular Codex sessions these agents do not exist.
 
 - **Always pass `agent_type`** (`orca_worker`, `orca_scout`, …) — with it Codex
   launches the child on the passed `model` of any multi-agent generation. Without

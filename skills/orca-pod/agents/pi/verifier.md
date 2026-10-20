@@ -1,6 +1,6 @@
 ---
 name: verifier
-description: Self-check for the Orca pipeline Implementer without reviewers — pi-lens diagnostics, static checks named in the task, acceptance-criteria mapping; read-only, returns classified findings
+description: Self-check for the Orca pipeline Implementer, only without reviewers (the self review mode) — pi-lens diagnostics, static checks named in the task, acceptance-criteria mapping; read-only, returns classified findings
 tools: read, grep, find, ls, bash, lens_diagnostics
 thinking: medium
 systemPromptMode: replace
