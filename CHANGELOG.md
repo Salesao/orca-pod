@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 - 2026-10-21
+
+### Fixed
+
+- **The Implementer no longer reviews its own code when there are reviewers.** In the `full`, `reviewer` and
+  `chief` modes it could audit a finished stage with `verifier` subagents before the review request, which
+  duplicated the review and delayed it. Now it runs only the plan's checks and sends one review request; the
+  `verifier` self-check is only for the `self` mode, and a Codex Implementer gets `orca_verifier` only in that mode.
+
 ## 0.2.0 - 2026-10-19
 
 ### Fixed
