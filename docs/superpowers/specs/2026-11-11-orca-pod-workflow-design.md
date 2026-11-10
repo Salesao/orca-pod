@@ -2,11 +2,15 @@
 
 Date: 2026-11-11
 
-Status: proposed design; implementation has not started. The approaches below
-were selected in the conversation; this document still requires approval.
+Status: approved by the user on 2026-11-11 (explicit design approval).
+The earlier asynchronous-first question-tool correction was separately authorized
+and implemented. The later Codex Planner Plan-mode requirement and its native
+question-window preference are recorded here for implementation; the wider
+workflow and pi-task extraction have not been implemented.
 
 Builder check: a fresh independent reviewer found no important unanswered
-questions preventing an implementation plan (2026-11-11).
+questions in the pre-blitz draft (2026-11-11). Subsequent user decisions below
+supersede that draft's defaults.
 
 ## Intent
 
@@ -28,7 +32,8 @@ optional Chief Reviewer. There is no new orchestration daemon.
    to expose inconsistencies, not to have Planner approve its own plan.
 3. During work, Pi Lens is a targeted tool. The regular Reviewer performs one
    final diagnostic pass over all files changed by the task. Findings return
-   to Implementer; subsequent checks cover the fix files and affected consumers.
+   to Implementer; subsequent checks cover the fix files. Including consumers
+   affected by a shared-interface fix is an author's proposed refinement below.
 4. Outside Pi, use diagnostics available to the chosen CLI and the checks in
    the plan. Do not require Pi Lens through MCP for every provider.
 5. At most three helper **specializations per terminal role**. This is not a
@@ -38,9 +43,36 @@ optional Chief Reviewer. There is no new orchestration daemon.
 8. Support Qoder and OMP in the project.
 9. Extract the question extension into a separate repository named `pi-task`.
    Prepare it for installation and later publication; the user will publish it.
+10. If a provider cannot enforce disabled delegation, continue with a clear
+    warning and explicit instructions; do not block that provider solely for it.
+11. If required diagnostics remain unavailable after the bounded retry and
+    fallback, finish with an explicit incomplete-verification outcome rather
+    than waiting for another user decision. Confirmed blocking defects still block.
+12. Chief alone checks fixes it requested after the regular Reviewer's pass;
+    those fixes do not return to the regular Reviewer.
+13. Keep the shared three-attempt budget for last-stage review and its final
+    diagnostics, rather than adding a separate three-attempt diagnostic cycle.
+14. When a plan-blitz answer changes the approved specification/design, present
+    the updated upstream document and plan together for one combined approval.
+15. If old settings have more than three profiles, automatically keep the active
+    profile and the first two other profiles in source order, after preserving
+    the complete original settings in a recoverable backup.
+16. Allow custom specializations to replace default slots, within the same
+    limit of three selected specializations per role.
+17. If a child cannot run without the heavy diagnostic extensions, the main role
+    performs the work inline instead of launching full diagnostic children.
+18. Question windows are mandatory when available. The initial asynchronous-first
+    rule is refined by the user's later preference for selectable answers like
+    pi-task: in Codex Plan mode use `request_user_input` first. Outside Plan mode,
+    retain the earlier asynchronous-first fallback where exposed and permitted.
+    Wait for actual asynchronous answers before continuing the blitz.
+19. When orca-pod opens a Codex Planner terminal through orca-cli, enter actual
+    Plan mode before delivering its task. This is specific to the Planner role;
+    the launch modes of other roles are unchanged.
 
-Other behavioral details in this document are the author's proposed defaults,
-explicitly subject to approval with this design.
+Other behavioral details in this document were proposed by the author and are
+included in the user's approval of this design. Implementation feasibility
+checks remain checks, not claims that the integrations have already been tested.
 
 ## Evidence and current implementation
 
@@ -187,15 +219,77 @@ inside the question window. Spec/design disagreements are made explicit;
 Planner does not silently invent a precedence rule between contradictory
 user-approved documents.
 
-The user still selects every asked answer. Choosing a different outcome
-updates the affected upstream document as a new approved version before the
-plan is handed off. Cancellation, an empty answer or a proposed default is
-never approval. Keep current round limits, plain-text fallback, overview,
-document paths and the final explicit approval.
+The user still selects every asked answer. Choosing a different outcome updates
+the affected upstream document and the plan together. Show the outcome and
+changes in both documents, then obtain one explicit combined approval before
+handoff; do not insert separate upstream and plan approval prompts for that
+same decision. The approval names both documents and covers their new immutable
+versions. Cancellation, an empty answer or a proposed default is never approval.
+Keep current round limits, overview and document paths.
 
-The question transport is a separate concern: Pi uses pi-task; other CLIs use
-their supported native question UI or the same numbered text fallback. OMP
-and Qoder do not require the Pi extension to participate.
+The question transport is a separate concern: Pi uses pi-task. In Codex Plan
+mode, use `request_user_input` first, with separately selectable options and
+their descriptions. Outside Plan mode, use `request_user_input_async` first
+when exposed and permitted, with the complete card in the title and
+outcome/gain/cost in each option string. A remaining permitted question tool is
+the next fallback; numbered text is last, after confirmed tool unavailability
+or an explicit user choice of text. Keep asynchronous turns active until an
+actual user answer arrives. A successful call, a preselected option or elapsed
+time is not an answer. Do not infer that every window is unavailable because
+the host is in Default mode. Host restrictions on tool use and approvals remain
+binding. OMP and Qoder use their supported question UI with the same truthful
+fallback; they do not require the Pi extension.
+
+### Codex Planner starts in Plan mode
+
+The required outcome is a Codex Planner session in actual Plan mode before its
+first task, including when terminals are prepared before a task is supplied.
+An instruction to "act as a planner", a read-only sandbox, or the existing
+`default_mode_request_user_input` feature flag does not establish that mode.
+Do not change the user's global Codex configuration to achieve this.
+
+The verified interface is the interactive `/plan` command. Installed Codex
+0.166.0 has no `--plan` option in its CLI help. The proposed bootstrap is:
+
+1. Start the configured Codex Planner with its existing model, role guard and
+   delegation policy, without an initial task prompt.
+2. Wait through orca-cli for `tui-idle` with `satisfied: true`; resolve any
+   workspace-trust interruption before sending further input.
+3. Send `/plan` with Enter to that recorded terminal handle.
+4. Confirm the active Plan mode from the rendered terminal or a supported
+   structured session signal, then send the Planner task once. Input acceptance
+   alone is not confirmation of a mode change. If confirmation fails, report
+   the initialization problem instead of dispatching in an unknown mode.
+
+Implement this coordination in the role bootstrap/capability contract, not by
+inventing an argv option or asking the model to change its own mode. The builder
+must verify the mode signal and native question window against the supported
+installed Codex version. A real question-window interaction has not yet been
+tested in a newly launched Orca terminal. The earlier Default-mode attempt in
+this conversation returned `request_user_input is unavailable in Default mode`.
+Update plan-blitz's currently asynchronous-first rule to the mode-aware routing
+above as part of this implementation.
+
+### Saving planning documents without violating Plan mode
+
+The installed Codex Plan-mode instructions prohibit file edits, including the
+design and plan files required by this workflow. Do not override that restriction
+with a role prompt or delegate the forbidden writes to a helper.
+
+Proposed adapter behavior: research, decisions and blitz stay in Plan mode;
+an explicit document-save phase switches the same Planner session out of Plan
+through a supported host control, permits only the named planning documents and
+their decision logs, then restores and verifies Plan before the next blitz or
+approval. Save the draft before its document-based blitz; after answer-driven
+revisions, save the exact revised version before final approval. Persisting a
+document does not authorize application changes or implementation of its plan.
+Keep Planner responsible for content and the existing approved-version handoff.
+
+The concrete exit/save/re-entry control is an implementation feasibility check,
+not a verified interface in this design. Do not assume `/plan` toggles back or
+that a prompt can switch modes. If the installed host cannot support this phase,
+surface that limitation before claiming the workflow works. No extra helper
+specialization, permanent coordinator loop or new service is added for saving.
 
 ## Helper catalogs and disabled delegation
 
@@ -310,7 +404,7 @@ ordinary repeat code review remains delta-based. It is a first diagnostic
 coverage pass, not permission to reopen all earlier code for unrelated style
 changes.
 
-### Optional roles and late fixes (author's defaults)
+### Optional roles and late fixes
 
 | Mode | Final diagnostic owner | Final verdict |
 | --- | --- | --- |
@@ -323,17 +417,18 @@ In `self`, existing per-stage static/criteria checks remain, but verifier does
 not start a Lens instance; final cumulative Lens/native diagnostics belong to
 the main role. There is still no independent review in this mode.
 
-If Chief requests changes after Reviewer completed diagnostics, the final
-diagnostic owner stays Reviewer in `full` mode. Implementer provides the fix
-delta for a diagnostic-only check before Chief's next verdict. Reviewer returns
-the result to Chief and Implementer; it does not reopen a full stage review or
-assume authority over Chief's findings. New diagnostic defects are carried into
-the pending Chief attempt for classification and the single final decision.
+If Chief requests changes after Reviewer completed diagnostics, Chief owns the
+scoped verification of those fixes using its own provider's permitted diagnostic
+tools and the planned checks. Implementer returns directly to Chief. The regular
+Reviewer does not receive another diagnostic-only handoff. Chief checks the fix
+files and affected consumers, without repeating the cumulative full pass; its
+report states the actual tool and any difference in coverage. The ownership table
+above describes the initial final pass, not this later Chief-owned fix check.
 
 Review budgets do not reset on a diagnostic finding: the initial full pass and
-its fixes use the last stage's existing three-attempt budget. A Chief fix's
-diagnostic-only check is part of the pending Chief attempt, with one such check
-per attempt, not an unbounded nested fix loop. Existing final review budgets
+its fixes use the last stage's existing three-attempt budget. Verification of a
+Chief fix is part of Chief's own pending attempt, not an extra nested fix loop.
+Existing final review budgets
 remain: two Chief attempts when a separate Reviewer exists, three final
 attempts when a single reviewer owns both phases; self checks keep their
 three-attempt bound. Unresolved blocking findings at the applicable limit are
@@ -354,11 +449,19 @@ caused by the task's interface change remains in scope.
 
 Each diagnostic call/command has a finite supported timeout. At most one
 targeted refresh/retry is allowed for a timeout or stale state, then use the
-planned fallback. A required check that cannot be completed is unresolved
-verification, not a code defect and not success. Follow the existing blocked
-workflow if no permitted fallback can satisfy it. Optional checks may be
-reported skipped with reason. The builder selects practical per-tool timeout
-values and records them; no speedup target is invented from the reports.
+planned fallback. A required check that cannot be completed is incomplete
+verification, not a code defect and not a passed check. If the bounded retry and
+permitted fallback are exhausted, continue other useful checks and finish without
+asking the user for permission to skip. The final verdict owner issues
+`COMPLETED_UNVERIFIED` only when there are no confirmed blocking findings and
+the review's other required work is complete. List the unfinished required
+checks, affected files and reason prominently in both the report and user-facing
+completion message. Do not issue `FINAL_APPROVED` or `SELF_VERIFIED` for that
+outcome. Confirmed blocking defects still follow `CHANGES_REQUESTED` and the
+existing `BLOCKED` limits; unavailable diagnostics never waive them. Optional
+checks may be reported skipped with reason. The builder selects practical
+per-tool timeout values and records them; no speedup target is invented from
+the reports.
 
 ### Pi extension isolation
 
@@ -388,10 +491,24 @@ boundaries. Also validate the resolved default/effective catalogs so an omitted
 mapping or union with defaults cannot bypass the limit. Empty catalogs when
 delegation is disabled do not create helper requirements.
 
-Opening old settings must be lossless. Show all old profiles and helper entries,
-mark the incompatible ones, and let the user choose what to keep before saving.
-Do not silently truncate to three, drop model settings, or overwrite the file
-when the form is cancelled.
+Old profile sets are repaired automatically during configuration upgrade/setup
+or Coordinator configuration preflight. Preserve the complete original file in
+a uniquely named recoverable backup before any replacement. Keep the active
+profile, then the first two other profiles in their original order; retain each
+kept profile's full settings and the existing active selection. Report the kept
+and archived profile names and the backup location. No extra profile-selection
+question is needed. If the active profile is missing, the source changed during
+repair, or the backup cannot be written, do not guess or overwrite: report the
+specific configuration problem. A read-only validator/launcher still rejects a
+four-profile configuration; the Coordinator invokes the repair before retrying
+validation. The profile selection remains capped at three after repair.
+
+This explicit upgrade operation is separate from form submission: show any
+completed upgrade when opening the form, and cancellation makes no further
+changes. Keep the backup until the user chooses to remove it. Restore/import
+instructions explain how to select any three profiles from that full copy.
+Other incompatible helper settings are shown intact and repaired through the
+normal form; do not silently discard helper model/thinking choices.
 
 For old `lens-checker` entries, explain that diagnostics now belong to the
 main role and offer removal from the helper list. For Implementer's separate
@@ -503,8 +620,10 @@ Implementation acceptance criteria:
 1. A specification, a design and a combined document can all be reviewed by
    blitz; a plan mismatch produces a question grounded in an upstream decision.
    User selection and final approval remain explicit.
-2. Three profiles save and launch; four profiles are rejected without losing
-   old configuration. Cancelling repair leaves the original file intact.
+2. Three profiles save and launch; four profiles fail direct validation. The
+   configuration repair keeps the active profile and first two others, preserves
+   a complete backup, and reports the change. Failed backup or a concurrent edit
+   leaves the original untouched; cancelling a later form makes no further changes.
 3. Every effective role catalog has at most three specializations. Multiple
    instances of a selected worker remain governed by `max_subagents`.
 4. Disabled delegation produces inline instructions at every handoff and
@@ -513,17 +632,26 @@ Implementation acceptance criteria:
 5. Workers/lanes can use extension-provided Pi models without launching Lens
    per child. Compatibility failure is detected before a mass failed launch.
 6. A multi-stage run has one cumulative final diagnostic pass. Its fix loop
-   checks the delta; Chief does not repeat the full pass. Required incomplete
-   diagnostics cannot yield a false success. All four review modes have an owner.
+   checks the delta; Chief checks its own later fixes without another Reviewer
+   handoff or a repeated full pass. Unavailable required diagnostics yield the
+   explicit incomplete-verification completion, never a false successful check.
+   Confirmed blocking defects still block. All four review modes have an owner.
 7. Qoder and OMP appear in setup when available and can launch each configured
    terminal role with the selected model, reasoning behavior and role policy.
 8. pi-task works in a clean Pi installation independently of orca-pod, and
    plan-blitz uses it while the setup form continues to work separately.
+9. A newly created Codex Planner enters verified Plan mode before receiving a
+   task and uses native selectable `request_user_input` questions. Other roles
+   keep their launch behavior. A failed mode switch never dispatches the task;
+   a merely accepted `/plan` send is not counted as success. Document-save and
+   return-to-Plan behavior is exercised without application edits, duplicate
+   task delivery, lost decisions or approval of an unsaved document version.
 
 Run the existing repository suite and extend only meaningful behavior tests:
 validator and server/client limit bypasses; default-versus-explicit helper
 selection; provider command/capability mapping; policy-aware handoffs; final
-scope and retry ownership; old configuration preservation; question UI submit,
+scope and retry ownership; old configuration preservation and deterministic
+backed-up profile reduction; question UI submit,
 cancel, abort, invalid parameters and no-UI behavior. Tests should catch the
 observed failures rather than merely assert the presence of new prose.
 
@@ -543,7 +671,8 @@ supplementary and environment-dependent.
 
 Proposed dependency order: prepare standalone pi-task and its stable interface;
 update orca-pod's shared provider/policy and limits; implement diagnostic and
-planning protocol changes; add full Qoder/OMP adapters; switch the Pi question
+planning protocol changes, including Codex Planner mode bootstrap, document-save
+feasibility and mode-aware question routing; add full Qoder/OMP adapters; switch the Pi question
 transport; update bilingual documentation and verify the integrated workflows.
 This is a design, not the implementation task list; writing-plans follows only
 after approval.
@@ -567,8 +696,32 @@ provider limitation that changes user-visible behavior must be surfaced.
   [subagents](https://docs.qoder.com/cli/subagent),
   [skills](https://docs.qoder.com/cli/Skills).
 - [OMP CLI reference](https://github.com/can1357/oh-my-pi/blob/main/docs/cli-reference.md).
+- [Codex CLI Plan command](https://learn.chatgpt.com/docs/developer-commands?surface=cli#switch-to-plan-mode-with-plan).
+- Local Codex 0.166.0 CLI help and embedded Plan-mode instructions; installed
+  orca-cli guide and `terminal send` / `terminal read` help. These establish
+  command availability and the file-write constraint, not end-to-end validation.
 - [Pi Lens features and experimental MCP adapter](https://github.com/apmantza/pi-lens/blob/master/docs/features.md).
 
 External interfaces were inspected on 2026-11-11 and must be checked against
-the installed CLI during implementation. No vendor source was executed to
-conduct this design review.
+the installed CLI during implementation. Help/guide commands were inspected;
+no new provider role session was run for the Plan-mode design amendment.
+
+## Blitz log
+
+Round 1 (2026-11-11): questions 1-8; choices 1,2,2,1,1,2,1,1. Confirmed warning-only
+delegation fallback, the shared attempt budget, custom specializations and inline
+fallback for heavy children; changed unavailable mandatory checks to explicit
+incomplete-verification completion, assigned Chief its own later fix checks,
+made upstream/plan approval joint, and selected automatic three-profile reduction
+with a complete backup. Follow-up: the user required asynchronous question windows
+first; this narrow skill correction was explicitly authorized and implemented.
+Later, after viewing the asynchronous example, the user requested selectable
+answers like pi-task and asked to add Codex Planner startup in Plan mode to the
+design. This adds decision 19 and refines decision 18 to prefer the native
+`request_user_input` in Plan mode. Startup, document persistence and this later
+routing refinement remain planned; the overall design is still unapproved.
+
+Approval (2026-11-11): the user explicitly approved the complete design after
+discussing document persistence and the restriction on using subagents to bypass
+Plan mode. Both language versions are approved together. Implementation planning
+can proceed; this approval does not claim the implementation plan is approved.
