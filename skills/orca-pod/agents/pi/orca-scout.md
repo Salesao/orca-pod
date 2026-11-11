@@ -2,7 +2,8 @@
 name: orca-scout
 description: Orca pipeline helper (Pi, without the user's extensions, so without pi-lens). Fast read-only codebase recon — finds files, symbols, data flow and risks for a bounded question and returns compressed context. Never edits files.
 tools: read, grep, find, ls, bash
-extensions:
+subagentOnlyExtensions:
+  - alibaba-token-plan
 thinking: low
 systemPromptMode: replace
 inheritProjectContext: true

@@ -2,7 +2,8 @@
 name: orca-oracle
 description: Orca pipeline helper (Pi, without the user's extensions, so without pi-lens) for the Planner. Read-only second opinion on one concrete contested architecture decision; protects already agreed requirements and decisions. Never edits files and never approves plans.
 tools: read, grep, find, ls, bash
-extensions:
+subagentOnlyExtensions:
+  - alibaba-token-plan
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true

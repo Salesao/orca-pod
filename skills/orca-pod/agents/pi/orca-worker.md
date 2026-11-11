@@ -2,7 +2,8 @@
 name: orca-worker
 description: Orca pipeline helper (Pi, without the user's extensions, so without pi-lens). Implementation agent for one bounded TODO or fix group inside an exclusive write scope given by the Integrator. Edits only allowed files and reports what changed.
 tools: read, grep, find, ls, bash, edit, write, contact_supervisor
-extensions:
+subagentOnlyExtensions:
+  - alibaba-token-plan
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true

@@ -2,7 +2,8 @@
 name: orca-reviewer
 description: Orca pipeline helper (Pi, without the user's extensions, so without pi-lens). Read-only review lane — checks one assigned slice of a change (TODO diff, integration seam, fix delta or prior findings) against acceptance criteria and returns classified findings. Never edits files and never approves.
 tools: read, grep, find, ls, bash
-extensions:
+subagentOnlyExtensions:
+  - alibaba-token-plan
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true

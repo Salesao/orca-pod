@@ -2,7 +2,8 @@
 name: orca-evidence-auditor
 description: Orca pipeline helper (Pi, without the user's extensions, so without pi-lens) for the Chief Reviewer. Read-only audit that maps key acceptance criteria to the Implementer's claims and to concrete evidence in code, reports and check results. Never edits files and never approves.
 tools: read, grep, find, ls, bash
-extensions:
+subagentOnlyExtensions:
+  - alibaba-token-plan
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
