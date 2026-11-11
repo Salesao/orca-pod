@@ -12,6 +12,22 @@ const helper = { name: 'domain-expert', model: 'provider/model', thinking: 'defa
   description: 'Check domain rules: "orders"', instructions: 'Check domain rules.\nPreserve "quotes", \\ paths and Unicode: \u0437\u0430\u043a\u0430\u0437\u044b.' };
 
 for (const provider of ['codex', 'claude-code', 'qoder', 'omp', 'pi']) {
+  test(`${provider}: all custom definitions are registered independently of concurrency`, () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'orca-many-helpers-'));
+    try {
+      const helpers = Array.from({ length: 12 }, (_, index) => ({ ...helper, name: 'domain-' + index }));
+      const prepared = prepareNativeHelpers({ provider, model: helper.model },
+        { role: 'implementer', useSubagents: true, helpers, maxSubagents: 6 },
+        { nativeAgents: true, delegation: { kind: 'tool-filtered' } },
+        { skillDir, cwd: root, env: {}, executable: { file: '/usr/bin/false' }, makeDirectory: () => root, materialize: true });
+      assert.equal(prepared.effective.helpers.length, 12);
+      assert.equal(prepared.effective.maxSubagents, 6);
+      const registered = prepared.native.files ?? prepared.native.agents
+        ?? JSON.parse(prepared.env[provider === 'pi' ? 'ORCA_POD_PI_POLICY' : 'ORCA_POD_OMP_POLICY']).helpers;
+      assert.equal(Object.keys(registered).length, 12, prepared.warnings.join('\n'));
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   test(`${provider}: a form-defined helper needs no installed agent file`, () => {
     const root = mkdtempSync(path.join(tmpdir(), 'orca-inline-helper-'));
     try {

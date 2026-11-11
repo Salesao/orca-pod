@@ -75,6 +75,34 @@ test('form rejects incomplete, multiline descriptions and non-string definitions
   }
 });
 
+test('form accepts three presets plus many custom helpers and retains them through YAML', () => {
+  const value = settings();
+  const planner = value.profiles[0].roles.planner;
+  planner.subagents = ['scout', 'researcher', 'oracle'].map((name) => ({ name, model: 'inherit', thinking: 'inherit' }));
+  planner.subagents.push(...Array.from({ length: 12 }, (_, index) => ({ name: 'custom-' + index, model: 'inherit', thinking: 'inherit',
+    description: 'Domain ' + index, instructions: 'Inspect domain ' + index })));
+  planner.subagents.push({ name: 'installed-specialist', model: 'inherit', thinking: 'inherit' });
+  assert.deepEqual(validateServer(value, MODELS), []);
+  const yaml = buildYaml(value);
+  assert.equal(prefill(yaml).profiles[0].roles.planner.subagents.length, 16);
+  assert.equal(Object.keys(resolveProfile(parsePipelineYaml(yaml)).resolvedRoles.planner.subagentSettings).length, 16);
+  planner.subagents.push({ name: 'worker', model: 'inherit', thinking: 'inherit' });
+  assert.ok(validateServer(value, MODELS).some((error) => error.includes('preset')));
+});
+
+test('invalid and duplicate custom definitions remain rejected beyond three helpers', () => {
+  const value = settings();
+  const planner = value.profiles[0].roles.planner;
+  planner.subagents = Array.from({ length: 7 }, (_, index) => ({ name: 'custom-' + index, model: 'inherit', thinking: 'inherit',
+    description: 'Custom role', instructions: 'Inspect domain' }));
+  assert.deepEqual(validateServer(value, MODELS), []);
+  planner.subagents[6].instructions = '';
+  assert.ok(validateServer(value, MODELS).some((error) => error.includes('instructions')));
+  planner.subagents[6].instructions = 'Inspect domain';
+  planner.subagents[6].name = planner.subagents[0].name;
+  assert.ok(validateServer(value, MODELS).some((error) => error.includes('twice')));
+});
+
 function runLauncher(yaml, args) {
   const root = mkdtempSync(path.join(tmpdir(), "orca-form-test-"));
   try {
@@ -469,7 +497,7 @@ test("setup-form.mjs: the browser cannot be opened → an English hint on stderr
   assert.match(result.stderr, /^The browser did not open automatically — open the link manually\.$/m);
 }));
 
-test("direct POST refuses four profiles and allows a manual Qoder ID only with proven default reasoning", async () => {
+test("direct POST refuses six profiles and allows a manual Qoder ID only with proven default reasoning", async () => {
   const providers = [{
     id: "qoder", available: true, catalogStatus: "unavailable",
     capabilities: { reasoning: { kind: "provider-default" } },

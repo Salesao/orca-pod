@@ -81,9 +81,11 @@ subagents:
 
 An omitted mapping uses the defaults below. An explicit selection replaces
 them, including installed compatible custom names. Every selected helper needs
-a model and thinking value; `inherit` refers to its own role. At most three
-specializations can be selected, independently of `max_subagents` (6 by default,
-range 1–100).
+a model and thinking value; `inherit` refers to its own role. Select up to three bundled preset
+specializations and any number of custom helpers. Custom definitions and
+installed custom names do not consume preset slots. A bundled name with its own
+`description`/`instructions` is also a custom definition. The independent
+`max_subagents` limit controls concurrent instances (6 by default, range 1–100).
 
 “Add custom helper” defines a helper directly in the form: enter its unique name,
 one-line role description and multiline instructions, then choose model/thinking.

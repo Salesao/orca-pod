@@ -1,6 +1,6 @@
 // Schema of orca-pod.yaml: parsing the file, validating profiles and short summaries for profile selection.
 // Shared module of the launcher (scripts/launch-provider.mjs) and the orca-pod-setup form (prefill).
-import { helperDefinition, helperDefinitionError } from './helper-definition.mjs';
+import { helperDefinition, helperDefinitionError, isPresetHelper, PRESET_HELPER_NAMES } from './helper-definition.mjs';
 
 const PROVIDER_ALIASES = new Map([
   ["pi", "pi"],
@@ -28,7 +28,7 @@ export const ROLE_AGENTS = {
   chief_reviewer: ["reviewer", "evidence-auditor", "scout"],
 };
 // Bundled Codex helper definitions.
-export const CODEX_AGENT_KEYS = ["worker", "scout", "researcher", "reviewer", "verifier", "oracle", "evidence-auditor"];
+export const CODEX_AGENT_KEYS = PRESET_HELPER_NAMES;
 /** Codex agent name: prefixed so as not to shadow the built-in Codex roles (default, worker, explorer). */
 export const codexAgentName = (key) => "orca_" + key.replaceAll("-", "_");
 export const ROLE_LABELS = { planner: "Planner", implementer: "Implementer", reviewer: "Reviewer", chief_reviewer: "Chief Reviewer" };
@@ -36,6 +36,7 @@ export const ROLE_LABELS = { planner: "Planner", implementer: "Implementer", rev
 const REQUIRED_ROLES = ["planner", "implementer"];
 // How many subagents one role runs at once (policy — SKILL.md, "Subagents: policy and limits").
 export const MAX_PROFILES = 5;
+// Only bundled presets consume slots. Custom definitions/names have no selection count cap.
 export const MAX_ROLE_SPECIALIZATIONS = 3;
 export const MAX_SUBAGENTS_DEFAULT = 6;
 export const MAX_SUBAGENTS_LIMIT = 100;
@@ -194,7 +195,6 @@ function parseSubagentSettings(rawSubagentSettings, parentRole) {
   if (parentRole === "implementer" && has(configuredSubagents, "researcher")) {
     fail(`${parentPath}.researcher was merged into scout; use orca-pod-setup to choose the retained settings`);
   }
-  if (Object.keys(configuredSubagents).length > MAX_ROLE_SPECIALIZATIONS) fail(`${parentPath} supports at most ${MAX_ROLE_SPECIALIZATIONS} specializations`);
   if (Object.keys(configuredSubagents).length === 0) {
     fail(`${parentPath} must declare at least one native-agent name; omit the block for provider defaults`);
   }
@@ -215,6 +215,9 @@ function parseSubagentSettings(rawSubagentSettings, parentRole) {
     if (definitionError) fail(`${settingPath}.${definitionError} must be a non-empty string; description must be one line and both definition fields are required`);
     Object.assign(validatedRole, helperDefinition(configuredRole));
     subagentSettings[subagentRole] = validatedRole;
+  }
+  if (Object.entries(subagentSettings).filter(([name, settings]) => isPresetHelper(name, settings)).length > MAX_ROLE_SPECIALIZATIONS) {
+    fail(`${parentPath} supports at most ${MAX_ROLE_SPECIALIZATIONS} preset specializations; custom helpers have no count limit`);
   }
   return subagentSettings;
 }

@@ -139,6 +139,8 @@ const agentsFor = (key) => D.roleAgents[key].filter((a) => effProg(key) === 'pi'
 const takenNames = (key) => state[key].subagents.map((s) => s.name).filter(Boolean);
 const definitionOf = (s) => Object.fromEntries(['description', 'instructions']
   .filter((field) => Object.hasOwn(s, field)).map((field) => [field, s[field]]));
+const presetHelperCount = (key) => state[key].subagents.filter((s) =>
+  (D.presetHelperNames ?? Object.values(D.roleAgents).flat()).includes(s.name) && !Object.keys(definitionOf(s)).length).length;
 const agentInfo = (name) => (hasMessage('agent.' + name) ? tr('agent.' + name) : '');
 function pickLevel(levels, preferred) {
   if (levels.includes(preferred)) return preferred;
@@ -398,14 +400,13 @@ function buildRole(role) {
   useInput.setAttribute('aria-describedby', key + '-use-err');
 
   const addCustom = h('button', { type: 'button', class: 'btn btn-outline-secondary btn-sm', id: key + '-add-custom', onclick: () => {
-    if (st.subagents.length >= maxRoleSpecializations) return;
     st.subagents.push({ ...defaultHelper(key, ''), description: '', instructions: '' });
     clearError(key + '-use'); renderHelpers(key);
     $(key + '-sa' + (st.subagents.length - 1) + '-agent')?.focus();
   } }, tr('custom.button'));
   const addButton = h('button' , { type: 'button', class: 'btn btn-outline-secondary btn-sm btn-icon-text', id: key + '-add', onclick: () => {
     const free = agentsFor(key).filter((a) => !takenNames(key).includes(a));
-    if (!free.length || st.subagents.length >= maxRoleSpecializations) return;
+    if (!free.length || presetHelperCount(key) >= maxRoleSpecializations) return;
     st.subagents.push(defaultHelper(key, free[0]));
     renderHelpers(key);
     $(key + '-sa' + (st.subagents.length - 1) + '-agent')?.focus();
@@ -436,12 +437,11 @@ function buildRole(role) {
 
 // ── helpers ──
 function updateAddState(key) {
-  const st = state[key];
   const free = agentsFor(key).filter((a) => !takenNames(key).includes(a));
-  const blocked = state[key].subagents.length >= maxRoleSpecializations || st.useSubagents && !free.length;
+  const blocked = presetHelperCount(key) >= maxRoleSpecializations || !free.length;
   $(key + '-add').disabled = blocked;
-  $(key + '-add-custom').disabled = st.subagents.length >= maxRoleSpecializations;
-  $(key + '-add-hint').textContent = blocked ? tr('subagents.allAdded') : '';
+  $(key + '-add-custom').disabled = false;
+  $(key + '-add-hint').textContent = tr(blocked ? 'subagents.allAdded' : 'subagents.limitHint', { max: maxRoleSpecializations });
 }
 function refreshAgentOptions(key) {
   const taken = takenNames(key);
@@ -501,6 +501,7 @@ function buildHelperRow(key, s, i) {
     definitionFields.hidden = !define.checked;
     desc.textContent = nameHelp();
     clearError(base + '-description'); clearError(base + '-instructions');
+    refreshAgentOptions(key);
   } });
 
   const modelSelect = h('select', { class: 'form-select mono', onchange: () => {
@@ -706,7 +707,7 @@ function collectRoleErrors(add) {
     if (!st.model || !findModel(st.model)) add(key + '-model', 'v.role.modelPick', { role: name, agent: progLabel(prog) });
     else if (progOf(st.model) !== prog) add(key + '-model', 'v.role.modelUnavailable', { role: name, agent: progLabel(prog) });
     else if (!levelsOf(st.model).includes(st.thinking)) add(key + '-think', 'v.role.thinking', { role: name, thinking: st.thinking });
-    if (st.subagents.length > maxRoleSpecializations) add(key + '-use', 'limits.helpers', { max: maxRoleSpecializations });
+    if (presetHelperCount(key) > maxRoleSpecializations) add(key + '-use', 'limits.helpers', { max: maxRoleSpecializations });
     const seen = new Set();
     st.subagents.forEach((s, i) => {
       const base = key + '-sa' + i;

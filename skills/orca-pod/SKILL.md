@@ -204,7 +204,7 @@ chief_reviewer; optional default_provider, max_subagents (an integer 1–100, 6 
 absent) and full_access (a boolean for direct launches; see below). There can
 be one to five profiles; a run uses one — the one chosen at start ("Profile selection").
 A role: provider, model, thinking (non-empty strings), use_subagents, subagents.
-`subagents` is a mapping of one to three selected helper names (lower-case, digits, hyphen)
+`subagents` is a mapping of selected helper names (lower-case, digits, hyphen)
 to model/thinking settings; optional `description` (one line) and `instructions`
 (multiline text, both fields required together) define a session-local helper
 without an installed agent file. The form edits and preserves these fields.
@@ -298,8 +298,10 @@ Review reports: <absolute path = <project-root>/.orca-pod/reports>
 ## Subagents: policy and limits
 
 Use the launcher’s effective `policy` for this run. The Coordinator never
-creates helpers. An explicit `subagents` mapping replaces the defaults, and a
-custom helper occupies one of at most three places. With `use_subagents: false`
+creates helpers. An explicit `subagents` mapping replaces the defaults. Select
+up to three bundled preset specializations plus any number of custom helpers.
+A name with its own description/instructions or an installed custom name does
+not consume a preset slot. Concurrent instances are still bounded by max_subagents. With `use_subagents: false`
 or an unavailable helper, the role works inline. This also applies when another
 skill suggests delegation. Never bypass the policy through another CLI, MCP tool
 or recursive delegation. Record an instruction-only warning if the host cannot

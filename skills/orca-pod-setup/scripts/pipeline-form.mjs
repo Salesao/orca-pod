@@ -11,7 +11,7 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { t } from './form/i18n.mjs';
-import { helperDefinition, helperDefinitionError } from '../../orca-pod/scripts/helper-definition.mjs';
+import { helperDefinition, helperDefinitionError, isPresetHelper, PRESET_HELPER_NAMES } from '../../orca-pod/scripts/helper-definition.mjs';
 import { isManualModelId } from '../../orca-pod/scripts/provider-capabilities.mjs';
 // One config schema for the launcher and the form: the parser, the profile name rule and the subagent limit bounds.
 import { isValidLanguage, LANGUAGE_DEFAULT, LANGUAGE_PATTERN, MAX_PROFILES, MAX_ROLE_SPECIALIZATIONS, MAX_SUBAGENTS_DEFAULT, MAX_SUBAGENTS_LIMIT, parsePipelineYaml, PROFILE_NAME_PATTERN, ROLE_AGENTS } from '../../orca-pod/scripts/pipeline-config.mjs';
@@ -137,7 +137,7 @@ function validateRoles(d, lookup, say) {
     if (typeof r.useSubagents !== 'boolean') errs.push(say('srv.role.useSubagents', role));
     if (r.subagents === undefined || (Array.isArray(r.subagents) && !r.subagents.length)) continue; // omitted YAML uses defaults
     if (!Array.isArray(r.subagents)) { errs.push(say('srv.role.noSubagents', role)); continue; }
-    if (r.subagents.length > MAX_ROLE_SPECIALIZATIONS) errs.push(say('limits.helpers', { max: MAX_ROLE_SPECIALIZATIONS }));
+    if (r.subagents.filter((sa) => sa && isPresetHelper(sa.name, sa)).length > MAX_ROLE_SPECIALIZATIONS) errs.push(say('limits.helpers', { max: MAX_ROLE_SPECIALIZATIONS }));
     const seen = new Set();
     for (const sa of r.subagents) {
       if (!sa || typeof sa.name !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(sa.name)) { errs.push(say('srv.sub.badName', role)); continue; }
@@ -246,7 +246,7 @@ export async function startPipelineForm({ models, sources = [], providers = [], 
     .map((program) => ({ id: program, label: PROGRAMS[program], manual: ['qoder', 'omp'].includes(program) && availableProviders.get(program)?.catalogStatus !== 'available' &&
       availableProviders.get(program)?.capabilities.reasoning.kind !== 'unknown' && Boolean(availableProviders.get(program)?.available), count: models.filter((m) => m.program === program).length }));
   const data = {
-    models, programs, programLabels: PROGRAMS, sources: [...sources, ...providers.flatMap(({ warning }) => warning ? [warning] : [])], targetPath, profileUpgrade, roleAgents: ROLE_AGENTS, pre: prefill(currentYaml),
+    models, programs, programLabels: PROGRAMS, sources: [...sources, ...providers.flatMap(({ warning }) => warning ? [warning] : [])], targetPath, profileUpgrade, roleAgents: ROLE_AGENTS, presetHelperNames: PRESET_HELPER_NAMES, pre: prefill(currentYaml),
     limits: { maxProfiles: MAX_PROFILES, maxRoleSpecializations: MAX_ROLE_SPECIALIZATIONS, maxSubagentsDefault: MAX_SUBAGENTS_DEFAULT, maxSubagentsLimit: MAX_SUBAGENTS_LIMIT },
     profileNamePattern: PROFILE_NAME_PATTERN.source,
     languagePattern: LANGUAGE_PATTERN.source,
