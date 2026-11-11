@@ -27,7 +27,7 @@ automatically. The file sets the programs and models the pipeline works with. Th
 | `thinking` | The reasoning effort level supported by the model and the program |
 
 The allowed programs are `pi`, `codex`, `claude-code` (also `claude`), `qoder` (also `qodercli`) and `omp`.
-Model and thinking are required for every role. There can be up to three profiles:
+Model and thinking are required for every role. There can be up to five profiles:
 the name is letters (Cyrillic included), digits, `.`, `_`, `-`, no spaces, up to 64
 characters. If there is more than one valid profile, the Coordinator asks before the
 launch which one to use and shows each on one line; the choice is not
@@ -85,6 +85,27 @@ a model and thinking value; `inherit` refers to its own role. At most three
 specializations can be selected, independently of `max_subagents` (6 by default,
 range 1–100).
 
+“Add custom helper” defines a helper directly in the form: enter its unique name,
+one-line role description and multiline instructions, then choose model/thinking.
+The YAML stores optional `description` and `instructions` together:
+
+```yaml
+subagents:
+  domain-expert:
+    model: inherit
+    thinking: inherit
+    description: "Review order rules"
+    instructions: "Inspect order transitions.\nReport invalid states with evidence."
+```
+
+The launcher registers this definition for the current session in all five
+providers; it does not write global agent definitions. Planning/review helpers
+get read-only tools, implementation helpers can edit, and all are leaves.
+Without these two fields the launcher looks up an installed native definition.
+In the form, turn off “Define the helper’s role in this form” for that lookup.
+Both fields are required when either is present. They survive reopening the
+form, profile copies, and disabled delegation; disabled helpers are not launched.
+
 | Role | Defaults |
 | --- | --- |
 | Planner | scout, researcher, oracle |
@@ -120,15 +141,17 @@ A fragment of Reviewer in Pi:
 ```
 
 One level of nesting is two spaces, no tabs. `use_subagents` has no
-quotes: `true` or `false`. Inside a helper only `model` and `thinking` are allowed.
-Do not add passwords, tokens, shell commands, arbitrary roles or fields.
+quotes: `true` or `false`. Inside a helper `model` and `thinking` are required;
+`description` and `instructions` are the optional definition pair. The form emits
+multiline instructions as a quoted YAML string with `\n` escapes.
+Do not add passwords, tokens or unsupported fields.
 Inside a profile only `roles`, `default_provider`, `max_subagents` and `full_access` are allowed.
-For a configuration with more than three profiles, setup/preflight first saves
+For a configuration with more than five profiles, setup/preflight first saves
 all original bytes to a sibling `orca-pod.yaml.backup-<unique-id>`. It then keeps
-the active profile and the first two other profiles in their original order.
+the active profile and the first four other profiles in their original order.
 An absent active profile, changed source or failed backup prevents replacement.
 Cancel only dismisses the form. To restore, read the complete backup, choose up
-to three profiles and set `active_profile` to one of them, then validate the
+to five profiles and set `active_profile` to one of them, then validate the
 replacement. Keep the backup.
 
 For legacy helpers, explicitly remove the retired diagnostics specialization and

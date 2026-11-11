@@ -1,5 +1,16 @@
 # Provider compatibility, 2026-11-11
 
+Form-defined helpers store a one-line `description` and multiline `instructions`
+in the project YAML. Codex materializes a temporary TOML, Claude Code/Qoder use
+session `--agents`, Pi registers the definition through the existing runtime
+extension, and OMP loads an ephemeral `--extension` root containing `agents/`.
+An installed OMP 18.18.7 smoke discovered that root and its custom description;
+one native child selected by its session-specific name returned a token present
+only in its configured instructions (`CUSTOM_ROLE_OK_72A9`). The first attempt
+omitted the native selector and was blocked by the specialization guard; the
+explicit selector succeeded. Adapter tests cover all five providers. This
+follow-up did not repeat live child requests in the other four providers.
+
 The launcher resolves model, effort, effective helper selection and access per
 role. An installed executable alone does not establish runtime authorization.
 Catalog reads do not submit prompts.

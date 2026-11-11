@@ -17,9 +17,9 @@ export function tomlString(value) {
   return JSON.stringify(value);
 }
 
-export function roleGuard(role, policy) {
+export function roleGuard(role, policy, helperNames = {}) {
   const delegation = !policy ? '' : policy.useSubagents
-    ? ` Delegate only to these selected specializations: ${policy.helpers.map(({ name }) => name).join(', ')}. Honor the resolved models, effort and concurrency; children are leaves. If a helper cannot run under policy, do its work inline.`
+    ? ` Delegate only to these selected specializations: ${policy.helpers.map(({ name }) => Object.hasOwn(helperNames, name) ? helperNames[name] : name).join(', ')}. Honor the resolved models, effort and concurrency; children are leaves. If a helper cannot run under policy, do its work inline.`
     : ' Delegation is disabled. Perform all role work inline. Do not spawn, schedule or delegate through native tools, other CLIs, skills, extensions or MCP.';
   return `You are the ${ROLE_LABELS[role]} role of the orca-pod Orca pipeline, not the Coordinator. `
     + 'The Coordinator has already prepared the config, the sandbox and the role terminals: do not run orca terminal create, launch-provider.mjs or test-sandbox.mjs, '
@@ -32,7 +32,7 @@ export function providerCommand(settings, {
 }) {
   policy ??= resolveRolePolicy({ resolvedRoles: { [role]: settings }, reviewMode, maxSubagents }, role);
   capabilities ??= getProviderCapabilities(settings.provider);
-  const guard = roleGuard(role, policy);
+  const guard = roleGuard(role, policy, native.helperNames);
   const model = ['--model', settings.model];
   const effort = settings.thinking === 'default' ? [] : ['--thinking', settings.thinking];
   const instructions = capabilities.rolePrompt ? ['--append-system-prompt', guard] : [];
@@ -47,9 +47,10 @@ export function providerCommand(settings, {
       break;
     case 'codex': {
       const helpers = disabled ? ['--disable', 'multi_agent', '--config', 'agents.enabled=false']
-        : policy.helpers.flatMap(({ name }) => {
+        : policy.helpers.flatMap(({ name, description }) => {
           const file = native.files?.[name] ?? path.join(skillDir, 'agents', 'codex', `${name}.toml`);
-          return ['--config', `agents.${codexAgentName(name)}.config_file=${tomlString(file)}`];
+          return ['--config', `agents.${codexAgentName(name)}.config_file=${tomlString(file)}`,
+            ...(description ? ['--config', `agents.${codexAgentName(name)}.description=${tomlString(description)}`] : [])];
         });
       flags = [...model, '--config', `model_reasoning_effort=${tomlString(settings.thinking)}`,
         '--config', `agents.max_concurrent_threads_per_session=${maxSubagents}`, '--config', 'agents.max_depth=1', ...helpers,
@@ -70,7 +71,8 @@ export function providerCommand(settings, {
     case 'omp':
       flags = [...model, ...effort, ...instructions, ...access,
         ...(disabled && !native.guard && capabilities.delegation.kind === 'tool-filtered' ? ['--tools', OMP_INLINE_TOOLS] : []),
-        ...(native.guard ? ['--extension', native.guard] : []), ...(native.config ? ['--config', native.config] : [])];
+        ...(native.guard ? ['--extension', native.guard] : []), ...(native.config ? ['--config', native.config] : []),
+        ...(native.agentExtension ? ['--extension', native.agentExtension] : [])];
       break;
     default: throw new Error(`Unsupported provider ${settings.provider}`);
   }

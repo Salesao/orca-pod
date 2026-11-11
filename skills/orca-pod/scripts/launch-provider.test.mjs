@@ -151,7 +151,9 @@ for (const providerName of ["pi", "codex", "claude-code", "claude"]) {
     const args = launcherResult.stdout.trimEnd().split("\n");
     assert.equal(args[args.indexOf("--model") + 1], "zai/glm-5.3-flash");
     assert.match(launcherResult.stdout, /Implementer role/);
-    assert.match(launcherResult.stdout, /selected specializations: worker, scout/);
+    const nativeNames = providerName === 'codex' ? 'orca_worker, orca_scout'
+      : providerName === 'pi' ? 'orca-pod-worker, orca-pod-scout' : 'worker, scout';
+    assert.ok(launcherResult.stdout.includes('selected specializations: ' + nativeNames));
     if (providerName === "codex") {
       assert.match(launcherResult.stdout, /agents\.orca_worker\.config_file=/);
       assert.doesNotMatch(launcherResult.stdout, /agents\.orca_(researcher|verifier)\.config_file=/);

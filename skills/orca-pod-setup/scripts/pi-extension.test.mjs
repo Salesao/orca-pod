@@ -218,14 +218,14 @@ test("the setup form also opens with the older Pi package namespace", () => with
 
 test("cancelling the form after automatic profile upgrade preserves the backup and the retained profiles", () => withExtension(async ({ tool, ctx, project }) => {
   const file = path.join(project, ".orca-pod", "orca-pod.yaml");
-  const source = "active_profile: d\nprofiles:\n" + ["a", "b", "c", "d"].map((name) => `  ${name}:\n    roles:\n      planner:\n        model: zai/glm-5.3-flash\n        thinking: high\n      implementer:\n        model: zai/glm-5.3-flash\n        thinking: high\n`).join("");
+  const source = "active_profile: f\nprofiles:\n" + ["a", "b", "c", "d", "e", "f"].map((name) => `  ${name}:\n    roles:\n      planner:\n        model: zai/glm-5.3-flash\n        thinking: high\n      implementer:\n        model: zai/glm-5.3-flash\n        thinking: high\n`).join("");
   write(file, source);
   const form = await startTool(tool, ctx);
   await post(form.url, "/cancel", {});
   const { details } = await form.result;
   assert.equal(details.status, "cancelled");
-  assert.deepEqual(details.profileUpgrade.kept, ["a", "b", "d"]);
-  assert.deepEqual(details.profileUpgrade.archived, ["c"]);
+  assert.deepEqual(details.profileUpgrade.kept, ["a", "b", "c", "d", "f"]);
+  assert.deepEqual(details.profileUpgrade.archived, ["e"]);
   assert.equal(readFileSync(details.profileUpgrade.backupPath, "utf8"), source);
-  assert.doesNotMatch(readFileSync(file, "utf8"), /^  c:/m);
+  assert.doesNotMatch(readFileSync(file, "utf8"), /^  e:/m);
 }));

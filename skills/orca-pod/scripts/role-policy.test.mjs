@@ -7,6 +7,26 @@ const role = () => ({ model: 'example/model', thinking: 'high', use_subagents: t
 const profile = () => ({ roles: { planner: role(), implementer: role() } });
 const config = () => ({ active_profile: 'a', profiles: { a: profile() } });
 
+test('form-defined role and instructions reach effective policy with inherited model', () => {
+  const value = config();
+  const definition = { description: 'Domain expert', instructions: 'Inspect domain rules.\nExplain violations.' };
+  value.profiles.a.roles.planner.subagents = { expert: { model: 'inherit', thinking: 'low', ...definition } };
+  const resolved = resolveProfile(value);
+  assert.deepEqual(resolveRolePolicy(resolved, 'planner').helpers, [{ name: 'expert', model: 'example/model', thinking: 'low', ...definition }]);
+  delete resolved.resolvedRoles.planner.resolvedSubagentSettings;
+  assert.equal(resolveRolePolicy(resolved, 'planner').helpers[0].instructions, definition.instructions);
+});
+
+test('inline helper definitions require a one-line role and nonempty instructions', () => {
+  for (const definition of [{ description: 'Domain expert' }, { instructions: 'Inspect' },
+    { description: 'Domain\nexpert', instructions: 'Inspect' }, { description: 'Expert', instructions: '  ' },
+    { description: null, instructions: 'Inspect' }]) {
+    const value = config();
+    value.profiles.a.roles.planner.subagents = { expert: { model: 'inherit', thinking: 'inherit', ...definition } };
+    assert.throws(() => resolveProfile(value), /description|instructions/);
+  }
+});
+
 test('profile and specialization caps are independent of concurrency', () => {
   const value = config();
   const active = value.profiles.a;
@@ -17,11 +37,12 @@ test('profile and specialization caps are independent of concurrency', () => {
   active.roles.planner.subagents.four = { model: 'inherit', thinking: 'inherit' };
   assert.throws(() => resolveProfile(value), /at most 3 specializations/);
   delete active.roles.planner.subagents.four;
-  Object.assign(value.profiles, { b: profile(), c: profile() });
-  assert.equal(listProfiles(value).profiles.length, 3);
-  value.profiles.d = profile();
-  assert.throws(() => listProfiles(value), /at most 3 profiles/);
-  assert.throws(() => resolveProfile(value), /at most 3 profiles/);
+  Object.assign(value.profiles, { b: profile(), c: profile(), d: profile(), e: profile() });
+  assert.equal(listProfiles(value).profiles.length, 5);
+  assert.equal(resolveProfile(value).profile, 'a');
+  value.profiles.f = profile();
+  assert.throws(() => listProfiles(value), /at most 5 profiles/);
+  assert.throws(() => resolveProfile(value), /at most 5 profiles/);
 });
 
 test('custom choices replace defaults and disabled roles have no effective helpers', () => {

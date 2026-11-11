@@ -202,10 +202,13 @@ profile name is letters, digits, `.`, `_`, `-`, no spaces, up to 64 characters. 
 profile: roles with required planner, implementer and optional reviewer,
 chief_reviewer; optional default_provider, max_subagents (an integer 1–100, 6 if
 absent) and full_access (a boolean for direct launches; see below). There can
-be one to three profiles; a run uses one — the one chosen at start ("Profile selection").
+be one to five profiles; a run uses one — the one chosen at start ("Profile selection").
 A role: provider, model, thinking (non-empty strings), use_subagents, subagents.
 `subagents` is a mapping of one to three selected helper names (lower-case, digits, hyphen)
-to model/thinking pairs; `inherit` takes the value of **its own** parent role; a
+to model/thinking settings; optional `description` (one line) and `instructions`
+(multiline text, both fields required together) define a session-local helper
+without an installed agent file. The form edits and preserves these fields.
+`inherit` takes the value of **its own** parent role; a
 missing block selects the role defaults. An explicit selection replaces them. Provider values: pi, codex, claude-code
 (alias claude), qoder (alias qodercli), omp. For a claude-code role the launcher additionally requires
 thinking from `low|medium|high|xhigh|max`, and the model of its helpers to be

@@ -272,7 +272,7 @@ test("ensure-gitignore.sh: not a Git repository → SKIP, nothing is written", (
 test("setup describes the profile backup and standalone question package", () => {
   const settings = flat(readDoc("references/settings.md"));
   assert.match(settings, /orca-pod\.yaml\.backup-/);
-  assert.match(settings, /choose up to three profiles/);
+  assert.match(settings, /choose up to five profiles/);
   assert.match(flat(SKILL), /pi install \/absolute\/path\/to\/pi-task/);
   assert.match(flat(SKILL), /provides only `orca_pod_setup`/);
 });

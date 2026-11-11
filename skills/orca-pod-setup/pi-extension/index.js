@@ -27,7 +27,8 @@ async function loadSetupScripts() {
 }
 
 function formOutputSchema(Type) {
-  const AgentSettings = Type.Object({ name: Type.String(), model: Type.String(), thinking: Type.String() });
+  const AgentSettings = Type.Object({ name: Type.String(), model: Type.String(), thinking: Type.String(),
+    description: Type.Optional(Type.String()), instructions: Type.Optional(Type.String()) });
   const RoleSettings = Type.Object({
     provider: Type.Optional(Type.String()),
     model: Type.String(),

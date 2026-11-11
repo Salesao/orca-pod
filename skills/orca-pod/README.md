@@ -62,7 +62,7 @@ Findings have four severities: `BLOCKER`, `MAJOR`, `MINOR` and `NIT`. Only `BLOC
 limited: up to 3 rounds per stage and up to 2 attempts for the chief review (3 when the Chief Reviewer is the only
 reviewer); if it does not converge, the status becomes `BLOCKED` and you decide.
 
-There are up to three profiles. Each has its own `max_subagents` (6 by default,
+There are up to five profiles. Each has its own `max_subagents` (6 by default,
 1–100) and `full_access` for direct launches. Coordinator uses the supported YOLO
 mode. Roles and models are set in `orca-pod.yaml`.
 
@@ -147,4 +147,4 @@ project's `.gitignore` by `orca-pod-setup/scripts/ensure-gitignore.sh`, and only
 - It does not resume an interrupted run — a new run is a new invocation of the skill.
 - It does not work without Orca: all roles run in its terminals.
 
-Coordinator uses each provider’s supported YOLO mode. The `full_access` setting controls direct launches. The caps are three profiles and three specializations per role. A complete backup is saved beside an upgraded YAML. Install the optional `pi_task` window separately with `pi install /absolute/path/to/pi-task`.
+Coordinator uses each provider’s supported YOLO mode. The `full_access` setting controls direct launches. The caps are five profiles and three specializations per role. A complete backup is saved beside an upgraded YAML. Install the optional `pi_task` window separately with `pi install /absolute/path/to/pi-task`.

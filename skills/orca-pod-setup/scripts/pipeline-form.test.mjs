@@ -54,6 +54,27 @@ function settings() {
   };
 }
 
+test('form role definitions survive YAML, prefill, and launcher resolution', () => {
+  const value = settings();
+  const definition = { description: 'Orders: "expert"', instructions: 'Inspect orders.\nKeep \\ paths and "quotes".\n\u0417\u0430\u043a\u0430\u0437\u044b.' };
+  value.profiles[0].roles.planner.subagents = [{ name: 'orders-expert', model: 'inherit', thinking: 'inherit', ...definition }];
+  assert.deepEqual(validateServer(value, MODELS), []);
+  const yaml = buildYaml(value);
+  const restored = prefill(yaml).profiles[0].roles.planner.subagents[0];
+  assert.deepEqual(restored, value.profiles[0].roles.planner.subagents[0]);
+  const resolved = resolveProfile(parsePipelineYaml(yaml));
+  assert.equal(resolved.resolvedRoles.planner.resolvedSubagentSettings['orders-expert'].instructions, definition.instructions);
+});
+
+test('form rejects incomplete, multiline descriptions and non-string definitions', () => {
+  for (const definition of [{ description: 'Expert' }, { instructions: 'Inspect' }, { description: 'Expert', instructions: '' },
+    { description: 'Line\nbreak', instructions: 'Inspect' }, { description: null, instructions: 'Inspect' }]) {
+    const value = settings();
+    value.profiles[0].roles.planner.subagents = [{ name: 'expert', model: 'inherit', thinking: 'inherit', ...definition }];
+    assert.ok(validateServer(value, MODELS).length > 0, JSON.stringify(definition));
+  }
+});
+
 function runLauncher(yaml, args) {
   const root = mkdtempSync(path.join(tmpdir(), "orca-form-test-"));
   try {
@@ -460,7 +481,8 @@ test("direct POST refuses four profiles and allows a manual Qoder ID only with p
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
     const oversized = settings();
-    oversized.profiles.push({ ...oversized.profiles[0], name: "three" }, { ...oversized.profiles[0], name: "four" });
+    oversized.profiles.push(...['three', 'four', 'five', 'six'].map((name) => ({ ...oversized.profiles[0], name })));
+    assert.deepEqual(validateServer({ ...oversized, profiles: oversized.profiles.slice(0, 5) }, MODELS), []);
     assert.equal((await post(oversized)).status, 400);
     const selection = settings();
     selection.profiles[0].roles.planner = role("qoder:manual-model", "ultra", { provider: "qoder" });

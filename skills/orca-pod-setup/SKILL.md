@@ -220,14 +220,21 @@ model and thinking are in the Codex catalog; it does not check authorization or 
 
 ## 5. Summary
 
+Custom helpers can be defined in the form with a unique name, one-line role
+description and multiline instructions. Preserve both `description` and
+`instructions` in each helper's YAML settings. The launcher registers them for
+this session; do not require users to create agent files or install definitions.
+With the definition switch off, the name resolves to an installed native agent.
+All custom helpers count toward the three-specialization cap and remain leaves.
+
 For each profile (mark the default profile and the subagent limit) — a table
 "role → agent → model → thinking → use_subagents → helpers"; the path to the file, the
 result of link-agents and a reminder: the pipeline has not been run yet. If there are several
 profiles, the Coordinator will ask at launch which one to use.
-Summarize the three-profile and three-specialization caps and the independent
+Summarize the five-profile and three-specialization caps and the independent
 concurrency setting. Show the retained and archived profiles and the backup path
 when upgraded, even if the form is cancelled. Open the backup to recover any
-three profiles, select an active one, validate and save that set.
+five profiles, select an active one, validate and save that set.
 
 ## Fallback without the form in Pi
 

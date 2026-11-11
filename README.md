@@ -481,7 +481,7 @@ MIT, see [LICENSE](LICENSE).
 
 Roles support Pi, Codex, Claude Code, Qoder and OMP. Coordinator requests the supported session-local YOLO mode for every role and reports the effective access. Pi uses host permissions. The `full_access` switch controls direct launches. Delegation is independent.
 
-A configuration has at most three profiles. A role has at most three helper specializations. Explicit selections replace defaults; concurrent instances remain a separate limit of 6 by default, 1–100. Setup and Coordinator preflight retain the active profile and the first two others and keep a complete backup beside the original configuration.
+A configuration has at most five profiles. A role has at most three helper specializations. Explicit selections replace defaults; concurrent instances remain a separate limit of 6 by default, 1–100. Setup and Coordinator preflight retain the active profile and the first four others and keep a complete backup beside the original configuration.
 
 Diagnostics are targeted during work. The last stage has one cumulative pass. Fix checks cover the fix and affected consumers, including fixes requested by Chief. Required coverage that remains unavailable after retry and fallback yields `COMPLETED_UNVERIFIED` when the other work is complete and blockers are resolved.
 

@@ -11,6 +11,7 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { t } from './form/i18n.mjs';
+import { helperDefinition, helperDefinitionError } from '../../orca-pod/scripts/helper-definition.mjs';
 import { isManualModelId } from '../../orca-pod/scripts/provider-capabilities.mjs';
 // One config schema for the launcher and the form: the parser, the profile name rule and the subagent limit bounds.
 import { isValidLanguage, LANGUAGE_DEFAULT, LANGUAGE_PATTERN, MAX_PROFILES, MAX_ROLE_SPECIALIZATIONS, MAX_SUBAGENTS_DEFAULT, MAX_SUBAGENTS_LIMIT, parsePipelineYaml, PROFILE_NAME_PATTERN, ROLE_AGENTS } from '../../orca-pod/scripts/pipeline-config.mjs';
@@ -57,7 +58,7 @@ export function prefill(source = '') {
       const block = isMap(rolesDoc[role]) ? rolesDoc[role] : null;
       const subagents = Object.entries(block && isMap(block.subagents) ? block.subagents : {}).map(([agent, raw]) => {
         const settings = isMap(raw) ? raw : {};
-        return { name: agent, model: text(settings.model) || 'inherit', thinking: text(settings.thinking) || 'inherit' };
+        return { name: agent, model: text(settings.model) || 'inherit', thinking: text(settings.thinking) || 'inherit', ...helperDefinition(settings) };
       });
       roles[role] = {
         present: Boolean(block), provider: canonicalProgram(text(block?.provider)), model: text(block?.model),
@@ -143,6 +144,8 @@ function validateRoles(d, lookup, say) {
       const sub = { ...role, name: sa.name };
       if (seen.has(sa.name)) errs.push(say('srv.sub.duplicate', sub));
       seen.add(sa.name);
+      const definitionError = helperDefinitionError(sa);
+      if (definitionError) errs.push(say('srv.sub.' + definitionError, sub));
       if (sa.name === 'lens-checker' || (key === 'implementer' && sa.name === 'researcher')) {
         errs.push(say('limits.legacyHelper', { name: sa.name })); continue;
       }
@@ -179,7 +182,10 @@ export function buildYaml(d) {
       L.push('        model: ' + keyValue(r.model), '        thinking: ' + r.thinking, '        use_subagents: ' + (r.useSubagents ? 'true' : 'false'));
       if (r.subagents?.length) {
         L.push('        subagents:');
-        for (const sa of r.subagents) L.push('          ' + sa.name + ':', '            model: ' + (sa.model === 'inherit' ? 'inherit' : keyValue(sa.model)), '            thinking: ' + sa.thinking);
+        for (const sa of r.subagents) {
+          L.push('          ' + sa.name + ':', '            model: ' + (sa.model === 'inherit' ? 'inherit' : keyValue(sa.model)), '            thinking: ' + sa.thinking);
+          for (const [field, value] of Object.entries(helperDefinition(sa))) L.push('            ' + field + ': ' + JSON.stringify(value));
+        }
       }
     }
   });
@@ -200,7 +206,7 @@ function pickSettings(submitted, models) {
         roles[role] = {
           provider: r.provider || '', model: r.model, thinking: r.thinking, useSubagents: r.useSubagents,
           ...(listed.has(r.model) ? {} : { modelSource: 'manual' }),
-          subagents: (r.subagents ?? []).map((s) => ({ name: s.name, model: s.model, thinking: s.thinking })),
+          subagents: (r.subagents ?? []).map((s) => ({ name: s.name, model: s.model, thinking: s.thinking, ...helperDefinition(s) })),
         };
       }
       return { name: p.name, defaultProvider: p.defaultProvider, maxSubagents: p.maxSubagents, fullAccess: p.fullAccess === true, roles };

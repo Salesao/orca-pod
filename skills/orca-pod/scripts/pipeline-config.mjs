@@ -1,5 +1,6 @@
 // Schema of orca-pod.yaml: parsing the file, validating profiles and short summaries for profile selection.
 // Shared module of the launcher (scripts/launch-provider.mjs) and the orca-pod-setup form (prefill).
+import { helperDefinition, helperDefinitionError } from './helper-definition.mjs';
 
 const PROVIDER_ALIASES = new Map([
   ["pi", "pi"],
@@ -17,7 +18,7 @@ const ALLOWED_PROFILE_KEYS = ["roles", "default_provider", "max_subagents", "ful
 const ALLOWED_ROLE_KEYS = ["provider", "model", "thinking"];
 const ALLOWED_TERMINAL_ROLE_KEYS = [...ALLOWED_ROLE_KEYS, "use_subagents", "subagents"];
 const SUBAGENT_ROLE_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
-const ALLOWED_SUBAGENT_KEYS = ["model", "thinking"];
+const ALLOWED_SUBAGENT_KEYS = ["model", "thinking", "description", "instructions"];
 export const ROLE_KEYS = ["planner", "implementer", "reviewer", "chief_reviewer"];
 // Helpers a role uses (the form shows them per role, the Codex launcher registers them in the role's session).
 export const ROLE_AGENTS = {
@@ -34,7 +35,7 @@ export const ROLE_LABELS = { planner: "Planner", implementer: "Implementer", rev
 // Reviewers are optional: without them the Implementer checks itself (self mode, see SKILL.md).
 const REQUIRED_ROLES = ["planner", "implementer"];
 // How many subagents one role runs at once (policy — SKILL.md, "Subagents: policy and limits").
-export const MAX_PROFILES = 3;
+export const MAX_PROFILES = 5;
 export const MAX_ROLE_SPECIALIZATIONS = 3;
 export const MAX_SUBAGENTS_DEFAULT = 6;
 export const MAX_SUBAGENTS_LIMIT = 100;
@@ -203,13 +204,16 @@ function parseSubagentSettings(rawSubagentSettings, parentRole) {
     const configuredRole = mapping(rawRoleSettings, settingPath);
     assertOnlyKeys(configuredRole, ALLOWED_SUBAGENT_KEYS, settingPath);
     const validatedRole = Object.create(null);
-    for (const settingName of ALLOWED_SUBAGENT_KEYS) {
+    for (const settingName of ["model", "thinking"]) {
       const rawSetting = has(configuredRole, settingName) ? configuredRole[settingName] : null;
       if (typeof rawSetting !== "string" || rawSetting.trim() === "" || ["null", "~"].includes(rawSetting.trim())) {
         fail(`${settingPath}.${settingName} must be a non-empty string or inherit`);
       }
       validatedRole[settingName] = rawSetting.trim();
     }
+    const definitionError = helperDefinitionError(configuredRole);
+    if (definitionError) fail(`${settingPath}.${definitionError} must be a non-empty string; description must be one line and both definition fields are required`);
+    Object.assign(validatedRole, helperDefinition(configuredRole));
     subagentSettings[subagentRole] = validatedRole;
   }
   return subagentSettings;
@@ -356,6 +360,7 @@ export function resolveProfile(config, requestedProfileName = null) {
     // Native-tool compatibility and role capabilities need session preflight.
     resolvedRoles[name].resolvedSubagentSettings = resolvedRoles[name].subagentSettings === null ? null : Object.fromEntries(
       Object.entries(resolvedRoles[name].subagentSettings).map(([agent, requested]) => [agent, {
+        ...helperDefinition(requested),
         model: requested.model === "inherit" ? resolvedRoles[name].model : requested.model,
         thinking: requested.thinking === "inherit" ? resolvedRoles[name].thinking : requested.thinking,
       }]),
