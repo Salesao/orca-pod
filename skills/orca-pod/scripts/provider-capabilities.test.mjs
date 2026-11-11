@@ -12,6 +12,7 @@ test('new providers expose only capabilities supported by the supplied CLI evide
 
 test('Qoder and OMP model listings retain proven levels and identify partial results', () => {
   assert.deepEqual(parseModelCatalog('qoder', 'MODEL\nName (model-id)\ninvalid row\n').models.map(({ id, levels }) => [id, levels]), [['model-id', ['default']]]);
+  assert.deepEqual(parseModelCatalog('qoder', 'MODEL\nQwen-3.8-Flash\n').models.map(({ id }) => id), ['Qwen-3.8-Flash']);
   const result = parseModelCatalog('omp', JSON.stringify({ models: [
     { selector: 'example/precise', thinking: ['low', 'high', 'imaginary'] },
     { selector: 'example/default', thinking: null }, {},

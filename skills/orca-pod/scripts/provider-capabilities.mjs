@@ -39,7 +39,9 @@ export function parseModelCatalog(provider, output) {
   if (provider === 'qoder') {
     rows = output.trim().split(/\r?\n/).filter((line) => line.trim() && line.trim() !== 'MODEL').map((line) => {
       const match = /^\s*(.*?)\s*\(([^()\s]+)\)\s*$/.exec(line);
-      return match ? { id: match[2], label: match[1] } : null;
+      if (match) return { id: match[2], label: match[1] };
+      const name = line.trim();
+      return isManualModelId(name) ? { id: name, label: name } : null;
     });
   } else if (provider === 'omp') {
     try { rows = JSON.parse(output)?.models; } catch { rows = []; }
