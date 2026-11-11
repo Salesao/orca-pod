@@ -7,8 +7,10 @@ const PROVIDER_ALIASES = new Map([
   ["claude", "claude-code"],
   ["claude-code", "claude-code"],
   ["omp", "omp"],
+  ["qoder", "qoder"],
+  ["qodercli", "qoder"],
 ]);
-export const PROVIDER_LABELS = { pi: "Pi", "claude-code": "Claude Code", codex: "Codex", omp: "OMP" };
+export const PROVIDER_LABELS = { pi: "Pi", "claude-code": "Claude Code", codex: "Codex", omp: "OMP", qoder: "Qoder" };
 
 const ALLOWED_ROOT_KEYS = ["active_profile", "default_provider", "language", "profiles"];
 const ALLOWED_PROFILE_KEYS = ["roles", "default_provider", "max_subagents", "full_access"];
@@ -20,11 +22,11 @@ export const ROLE_KEYS = ["planner", "implementer", "reviewer", "chief_reviewer"
 // Helpers a role uses (the form shows them per role, the Codex launcher registers them in the role's session).
 export const ROLE_AGENTS = {
   planner: ["scout", "researcher", "oracle"],
-  implementer: ["worker", "scout", "researcher", "verifier"],
-  reviewer: ["reviewer", "lens-checker", "scout"],
-  chief_reviewer: ["reviewer", "evidence-auditor", "lens-checker", "scout"],
+  implementer: ["worker", "scout", "verifier"],
+  reviewer: ["reviewer", "scout"],
+  chief_reviewer: ["reviewer", "evidence-auditor", "scout"],
 };
-// Helpers with an agents/codex/<key>.toml file (lens-checker is Pi-only).
+// Bundled Codex helper definitions.
 export const CODEX_AGENT_KEYS = ["worker", "scout", "researcher", "reviewer", "verifier", "oracle", "evidence-auditor"];
 /** Codex agent name: prefixed so as not to shadow the built-in Codex roles (default, worker, explorer). */
 export const codexAgentName = (key) => "orca_" + key.replaceAll("-", "_");
@@ -32,6 +34,8 @@ export const ROLE_LABELS = { planner: "Planner", implementer: "Implementer", rev
 // Reviewers are optional: without them the Implementer checks itself (self mode, see SKILL.md).
 const REQUIRED_ROLES = ["planner", "implementer"];
 // How many subagents one role runs at once (policy — SKILL.md, "Subagents: policy and limits").
+export const MAX_PROFILES = 3;
+export const MAX_ROLE_SPECIALIZATIONS = 3;
 export const MAX_SUBAGENTS_DEFAULT = 6;
 export const MAX_SUBAGENTS_LIMIT = 100;
 // The profile name ends up in the terminal launch command (--profile <name>), so no spaces or quotes.
@@ -137,7 +141,7 @@ function parseScalar(raw, lineNumber) {
   return value;
 }
 
-export function parsePipelineYaml(source) {
+export function parsePipelineYaml(source, { onEntry } = {}) {
   const root = Object.create(null);
   const stack = [{ indent: -1, value: root }];
   const lines = source.replace(/^﻿/, "").split(/\r?\n/);
@@ -162,6 +166,7 @@ export function parsePipelineYaml(source) {
 
     while (indent <= stack.at(-1).indent) stack.pop();
     const parent = stack.at(-1).value;
+    onEntry?.({ parent, key, index, indent });
     if (has(parent, key)) fail(`line ${lineNumber}: duplicate key ${JSON.stringify(key)}`);
 
     if (rawValue.trim() === "") {
@@ -184,6 +189,11 @@ function parseSubagentSettings(rawSubagentSettings, parentRole) {
   const configuredSubagents = mapping(rawSubagentSettings, parentPath);
   const invalidRoles = Object.keys(configuredSubagents).filter(role => !SUBAGENT_ROLE_PATTERN.test(role));
   if (invalidRoles.length > 0) fail(`${parentPath} has invalid agent names: ${invalidRoles.map(role => JSON.stringify(role)).join(", ")}`);
+  if (has(configuredSubagents, "lens-checker")) fail(`${parentPath}.lens-checker was retired; use orca-pod-setup to update the selection`);
+  if (parentRole === "implementer" && has(configuredSubagents, "researcher")) {
+    fail(`${parentPath}.researcher was merged into scout; use orca-pod-setup to choose the retained settings`);
+  }
+  if (Object.keys(configuredSubagents).length > MAX_ROLE_SPECIALIZATIONS) fail(`${parentPath} supports at most ${MAX_ROLE_SPECIALIZATIONS} specializations`);
   if (Object.keys(configuredSubagents).length === 0) {
     fail(`${parentPath} must declare at least one native-agent name; omit the block for provider defaults`);
   }
@@ -217,13 +227,6 @@ function assertClaudeCodeRole(roleName, roleSettings) {
     if (child.thinking !== "inherit" && !CLAUDE_CODE_EFFORT_LEVELS.includes(child.thinking)) {
       fail(`${settingPath}.thinking must be inherit or one of ${CLAUDE_CODE_EFFORT_LEVELS.join(", ")} for provider claude-code`);
     }
-  }
-}
-
-// lens-checker is the pi-lens helper, available only in Pi.
-function assertCodexSchema(roleName, roleSettings) {
-  if (roleSettings.subagentSettings && has(roleSettings.subagentSettings, "lens-checker")) {
-    fail(`roles.${roleName}.subagents.lens-checker: lens-checker is Pi-only`);
   }
 }
 
@@ -286,6 +289,7 @@ function rootOf(config) {
   const activeProfile = scalar(has(config, "active_profile") ? config.active_profile : null, "active_profile");
   const profiles = mapping(has(config, "profiles") ? config.profiles : null, "profiles");
   if (Object.keys(profiles).some((name) => name.trim() === "")) fail("profile names must be non-empty strings");
+  if (Object.keys(profiles).length > MAX_PROFILES) fail(`configuration supports at most ${MAX_PROFILES} profiles; run profile-upgrade.mjs or orca-pod-setup`);
   if (!has(profiles, activeProfile)) fail(`active_profile ${JSON.stringify(activeProfile)} is not declared`);
   const rootDefaultProvider = has(config, "default_provider") ? canonicalProvider(config.default_provider, "default_provider") : "pi";
   return { activeProfile, profiles, rootDefaultProvider, language };
@@ -340,8 +344,14 @@ export function resolveProfile(config, requestedProfileName = null) {
     resolvedRoles[name].subagentSettings = has(roleSettings, "subagents")
       ? parseSubagentSettings(roleSettings.subagents, name)
       : null;
+    if (resolvedRoles[name].provider === "qoder" && (resolvedRoles[name].thinking !== "default" ||
+        Object.values(resolvedRoles[name].subagentSettings ?? {}).some(({ thinking }) => !["default", "inherit"].includes(thinking)))) {
+      fail(`roles.${name}: Qoder model listings do not expose effort levels; use thinking: default`);
+    }
+    if (resolvedRoles[name].provider === "omp" && !["default", "off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"].includes(resolvedRoles[name].thinking)) {
+      fail(`roles.${name}: unsupported OMP thinking level ${resolvedRoles[name].thinking}`);
+    }
     if (resolvedRoles[name].provider === "claude-code") assertClaudeCodeRole(name, resolvedRoles[name]);
-    if (resolvedRoles[name].provider === "codex") assertCodexSchema(name, resolvedRoles[name]);
     // These are resolved requests, not observed runtime model/effort values.
     // Native-tool compatibility and role capabilities need session preflight.
     resolvedRoles[name].resolvedSubagentSettings = resolvedRoles[name].subagentSettings === null ? null : Object.fromEntries(

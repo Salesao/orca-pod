@@ -2,7 +2,7 @@
   "name": "orca-pod",
   "version": "0.2.1",
   "private": true,
-  "description": "Agent skills that run one task through Planner, Implementer, Reviewer and Chief Reviewer terminals in Orca (Claude Code, Codex, Pi)",
+  "description": "Agent skills that run one task through Planner, Implementer, Reviewer and Chief Reviewer terminals in Orca (Claude Code, Codex, Pi, Qoder, OMP)",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -25,6 +25,9 @@
     "claude-code",
     "codex",
     "pi",
-    "multi-agent"
-  ]
+    "multi-agent",
+    "qoder",
+    "oh-my-pi"
+  ],
+  "type": "module"
 }

@@ -40,6 +40,7 @@ export function usualBinDirs({ env = process.env, home = os.homedir(), nodeBin =
   return [
     nodeBin, // global npm packages of the node that runs this script (nvm, fnm, Homebrew)
     path.join(home, ".local", "bin"), // the native installers of Claude Code and Codex
+    path.join(home, ".qoder", "entry"),
     path.join(home, ".claude", "local"), // the old local Claude Code install, reached through a shell alias
     path.join(home, ".npm-global", "bin"),
     ...nvmBinDirs(home),

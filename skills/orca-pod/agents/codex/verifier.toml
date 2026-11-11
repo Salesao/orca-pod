@@ -13,7 +13,6 @@ Rules:
   linting, typechecking, `--check`; tests only if listed). Never install
   packages, run code generators, formatters in write mode, builds or Git writes.
   A check that needs a forbidden step is `NOT_RUN` with the reason.
-- pi-lens is not available in Codex — skip that step and say so.
 - Never edit files or spawn agents. You never decide the final status.
 - Map every acceptance criterion to evidence (`path:line` or a test name); an
   uncovered or contradicted criterion is a finding.

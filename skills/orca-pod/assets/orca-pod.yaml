@@ -41,11 +41,8 @@ profiles:
           scout:
             model: inherit
             thinking: low
-          researcher:
-            model: openai-codex/gpt-5.6-sol
-            thinking: medium
       reviewer:
-        # Batch review: parallel reviewer-lanes by TODO/seams/delta + lens-checker.
+        # Batch review: parallel reviewer-lanes by TODO/seams/delta.
         model: openai-codex/gpt-5.6-sol
         thinking: xhigh
         use_subagents: true
@@ -53,9 +50,6 @@ profiles:
           reviewer:
             model: inherit
             thinking: high
-          lens-checker:
-            model: inherit
-            thinking: low
       chief_reviewer:
         # Chief final review: FINAL_APPROVED comes only from this role; the model is usually stronger than the Reviewer's.
         model: openai-codex/gpt-5.6-sol
@@ -70,7 +64,7 @@ profiles:
             thinking: medium
 
   # All roles in Claude Code. A helper's model is inherit or an alias opus|sonnet|haiku|fable;
-  # thinking — low..max or inherit. There is no lens-checker in Claude Code (no pi-lens).
+  # thinking — low..max or inherit.
   claude-quality:
     default_provider: claude-code
     max_subagents: 6

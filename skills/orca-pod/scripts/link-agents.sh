@@ -47,3 +47,5 @@ link_dir() {
 
 link_dir "$skill_dir/agents/claude" "$HOME/.claude/agents"
 link_dir "$skill_dir/agents/pi" "$HOME/.pi/agent/agents"
+
+link_dir "$skill_dir/agents/omp" "${PI_OMP_AGENT_DIR:-$HOME/.omp/agent}/agents"

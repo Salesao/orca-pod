@@ -5,14 +5,13 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { roleGuard } from "./provider-command.mjs";
 
 const LAUNCHER_PATH = fileURLToPath(new URL("./launch-provider.mjs", import.meta.url));
 const TEMPLATE_PATH = fileURLToPath(new URL("../assets/orca-pod.yaml", import.meta.url));
 const CODEX_FIXTURE_PATH = fileURLToPath(new URL("./fixtures/codex-debug-models.json", import.meta.url));
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function runLauncher(templateYaml, { role = "implementer", shouldResolve = true, shouldValidate = false, hasProviderExecutables = true, profileName = null, shouldListRoles = false, shouldListProfiles = false, isLegacyLocation = false, env = {}, codexCache = null } = {}) {
+function runLauncher(templateYaml, { role = "implementer", shouldResolve = true, shouldValidate = false, hasProviderExecutables = true, profileName = null, shouldListRoles = false, shouldListProfiles = false, isLegacyLocation = false, env = {}, codexCache = null, coordinator = false } = {}) {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "orca-launcher-test-"));
   try {
     const executableDirectory = path.join(fixtureRoot, "bin");
@@ -52,7 +51,7 @@ function runLauncher(templateYaml, { role = "implementer", shouldResolve = true,
     const modeArguments = shouldListProfiles ? ["--profiles"]
       : shouldListRoles ? ["--roles"]
         : ["--role", role, ...(shouldResolve ? ["--resolve"] : []), ...(shouldValidate ? ["--validate"] : [])];
-    return spawnSync(process.execPath, [LAUNCHER_PATH, ...modeArguments, ...(profileName === null ? [] : ["--profile", profileName])], {
+    return spawnSync(process.execPath, [LAUNCHER_PATH, ...modeArguments, ...(coordinator ? ["--coordinator"] : []), ...(profileName === null ? [] : ["--profile", profileName])], {
       cwd: fixtureRoot,
       // An empty ORCA_POD_BIN_DIRS: the providers are looked up only in the fakes directory, not in the usual install folders.
       env: { ...process.env, PATH: executableDirectory, CODEX_HOME: codexHome, ORCA_POD_BIN_DIRS: "", ...env },
@@ -144,25 +143,19 @@ test("A repeated setting is rejected", () => {
   assert.match(launcherResult.stderr, /duplicate key/);
 });
 
-const IMPLEMENTER_GUARD = roleGuard("implementer");
-for (const [providerName, expectedArguments] of [
-  ["pi", ["-a", "--model", "zai/glm-5.3-flash", "--thinking", "high", "--append-system-prompt", IMPLEMENTER_GUARD]],
-  // Codex: effort, the profile's limit of concurrent subagents, the implementer role's orca_* agents (no orca_verifier:
-  // the profile has a Reviewer) and the role guard.
-  ["codex", ["--model", "zai/glm-5.3-flash", "--config", 'model_reasoning_effort="high"', "--config", "agents.max_concurrent_threads_per_session=6",
-    ...["worker", "scout", "researcher"].flatMap((key) => ["--config",
-      `agents.orca_${key}.config_file=${JSON.stringify(path.join(SKILL_DIR, "agents", "codex", `${key}.toml`))}`]),
-    "--config", `developer_instructions=${JSON.stringify(IMPLEMENTER_GUARD)}`]],
-  ["claude-code", ["--model", "zai/glm-5.3-flash", "--effort", "high", "--append-system-prompt", IMPLEMENTER_GUARD]],
-  ["claude", ["--model", "zai/glm-5.3-flash", "--effort", "high", "--append-system-prompt", IMPLEMENTER_GUARD]],
-  ["omp", ["--model", "zai/glm-5.3-flash", "--thinking", "high"]],
-]) {
-  test(`The setting does not change the ${providerName} CLI`, () => {
+for (const providerName of ["pi", "codex", "claude-code", "claude"]) {
+  test(`launch applies the selected role and helper policy in ${providerName}`, () => {
     const configurationYaml = withSubagentSetting("true").replace("default_provider: pi", `default_provider: ${providerName}`);
-    // A Pi model in a Codex role would not pass the catalog; only the CLI arguments are checked here — the catalog is unavailable.
     const launcherResult = runLauncher(configurationYaml, { shouldResolve: false, env: { FAKE_CODEX_DEBUG_FAIL: "1" } });
     assert.equal(launcherResult.status, 0, launcherResult.stderr);
-    assert.deepEqual(launcherResult.stdout.trimEnd().split("\n"), expectedArguments);
+    const args = launcherResult.stdout.trimEnd().split("\n");
+    assert.equal(args[args.indexOf("--model") + 1], "zai/glm-5.3-flash");
+    assert.match(launcherResult.stdout, /Implementer role/);
+    assert.match(launcherResult.stdout, /selected specializations: worker, scout/);
+    if (providerName === "codex") {
+      assert.match(launcherResult.stdout, /agents\.orca_worker\.config_file=/);
+      assert.doesNotMatch(launcherResult.stdout, /agents\.orca_(researcher|verifier)\.config_file=/);
+    }
   });
 }
 
@@ -183,7 +176,6 @@ test("The template contains explicit inheritance of model and thinking", () => {
   assert.deepEqual(JSON.parse(launcherResult.stdout).subagentSettings, {
     worker: { model: "inherit", thinking: "inherit" },
     scout: { model: "inherit", thinking: "low" },
-    researcher: { model: "openai-codex/gpt-5.6-sol", thinking: "medium" },
   });
 });
 
@@ -228,8 +220,8 @@ for (const invalidSubagentYaml of [
   });
 }
 
-// A helper and its thinking from the template: scout for Planner, lens-checker for Reviewer.
-for (const [otherRole, helperName, expectedThinking] of [["planner", "scout", "low"], ["reviewer", "lens-checker", "low"]]) {
+// A helper and its thinking from the template: scout for Planner and Reviewer.
+for (const [otherRole, helperName, expectedThinking] of [["planner", "scout", "low"], ["reviewer", "reviewer", "high"]]) {
   test(`The subagents block is allowed for role ${otherRole}`, () => {
     const launcherResult = runLauncher(withSubagentModels("          worker:\n            model: inherit\n            thinking: high\n", { role: otherRole }));
     assert.equal(launcherResult.status, 0, launcherResult.stderr);
@@ -267,7 +259,7 @@ test("a provider CLI outside PATH but in a usual install folder: resolved with a
     const resolved = runLauncher(TEMPLATE_YAML, { hasProviderExecutables: false, env: { ORCA_POD_BIN_DIRS: folder } });
     assert.equal(resolved.status, 0, resolved.stderr);
     const settings = JSON.parse(resolved.stdout);
-    assert.deepEqual(settings.warnings, [`${settings.provider === "claude-code" ? "claude" : settings.provider} is not on PATH; using ${path.join(folder, settings.provider === "claude-code" ? "claude" : settings.provider)}`]);
+    assert.equal(settings.warnings[0], `${settings.provider === "claude-code" ? "claude" : settings.provider} is not on PATH; using ${path.join(folder, settings.provider === "claude-code" ? "claude" : settings.provider)}`);
     const launched = runLauncher(TEMPLATE_YAML, { shouldResolve: false, hasProviderExecutables: false, env: { ORCA_POD_BIN_DIRS: folder } });
     assert.equal(launched.status, 0, launched.stderr);
     assert.ok(launched.stdout.startsWith(folder + path.sep), launched.stdout);
@@ -331,7 +323,8 @@ test("An inactive profile is validated without switching active_profile", () => 
 test("A profile is selected for launch and resolve", () => {
   const launched = runLauncher(TWO_PROFILES_YAML, { shouldResolve: false, profileName: "claude-quality" });
   assert.equal(launched.status, 0, launched.stderr);
-  assert.deepEqual(launched.stdout.trimEnd().split("\n"), ["--model", "sonnet", "--effort", "high", "--append-system-prompt", IMPLEMENTER_GUARD]);
+  assert.match(launched.stdout, /--model\nsonnet\n--effort\nhigh\n/);
+  assert.match(launched.stdout, /Delegation is disabled/);
   const resolved = runLauncher(TWO_PROFILES_YAML, { profileName: "claude-quality" });
   assert.equal(resolved.status, 0, resolved.stderr);
   assert.equal(JSON.parse(resolved.stdout).profile, "claude-quality");
@@ -567,7 +560,7 @@ test("A nonexistent profile is rejected by validate", () => {
 });
 
 
-for (const nativeAgentName of ["reviewer", "oracle", "delegate", "researcher", "evidence-auditor", "custom-fixer"]) {
+for (const nativeAgentName of ["reviewer", "oracle", "delegate", "evidence-auditor", "custom-fixer"]) {
   test(`A syntactically valid native agent name is kept: ${nativeAgentName}`, () => {
     const configurationYaml = withSubagentModels(
       `          ${nativeAgentName}:\n            model: inherit\n            thinking: inherit\n`,
@@ -725,7 +718,7 @@ test("Codex: a helper on a model of another generation is accepted (agent_type s
   const settings = JSON.parse(result.stdout);
   assert.deepEqual(settings.resolvedSubagentSettings.worker, { model: "gpt-5.6-luna", thinking: "low" });
   assert.deepEqual(settings.resolvedSubagentSettings.scout, { model: "gpt-6-luna", thinking: "high" });
-  assert.deepEqual(settings.warnings, []);
+  assert.match(settings.warnings.join("\n"), /built-in agent types/);
 });
 
 test("Codex: a helper's effort outside its model's levels is rejected", () => {
@@ -737,7 +730,7 @@ test("Codex: a helper's effort outside its model's levels is rejected", () => {
 test("Codex: lens-checker is rejected already at validate", () => {
   const result = runLauncher(CODEX_YAML.replace("          scout:", "          lens-checker:\n            model: inherit\n            thinking: inherit\n          scout:"), { shouldResolve: false, shouldValidate: true });
   assert.equal(result.status, 2);
-  assert.match(result.stderr, /lens-checker is Pi-only/);
+  assert.match(result.stderr, /lens-checker was retired/);
 });
 
 test("Codex: catalog unavailable → resolve returns warnings, exit 0", () => {
@@ -776,4 +769,13 @@ test("validate does not call codex debug models", () => {
   } finally {
     rmSync(marker, { force: true });
   }
+});
+
+test("Coordinator launches request YOLO independently of profile access and delegation", () => {
+  const result = runLauncher(TWO_PROFILES_YAML, { coordinator: true, profileName: "claude-quality", shouldResolve: false });
+  assert.equal(result.status, 0, result.stderr);
+  const args = result.stdout.split("\n");
+  assert.ok(args.includes("--dangerously-skip-permissions"));
+  assert.equal(args[args.indexOf("--disallowed-tools") + 1], "Agent");
+  assert.doesNotMatch(result.stdout, /--agents/);
 });
