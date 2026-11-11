@@ -54,7 +54,7 @@ Node.js 18 or newer and git for the installer (your project does not have to be 
 [Requirements](#requirements) lists the rest.
 
 ```bash
-npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi
+npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
 ```
 
 **2. Configure.** Open your project in the agent and run the setup skill. It writes `.orca-pod/orca-pod.yaml`
@@ -173,7 +173,7 @@ Per agent:
 | --- | --- |
 | Claude Code | `claude` on `PATH` or in a usual install folder (`~/.local/bin`, `~/.claude/local`, Homebrew, nvm and others). The helper agents from `skills/orca-pod/agents/claude/` are linked into `~/.claude/agents/` by `orca-pod-setup`. |
 | Codex | `codex` on `PATH` or in a usual install folder. The `orca_*` helpers are registered for each role's session. For direct launches inside a sandbox, setup offers the rule `prefix_rule(pattern=["orca"], decision="allow")` in `~/.codex/rules/default.rules`. Coordinator launches request Full Access. Planner requires the verified Plan-mode and document-save controls described below. |
-| Pi | Verified with Pi 1.4.0 and pi-subagents 0.81.0. The role retains Lens for its checks. Local foreground helpers inherit registered model providers without loading ambient extensions. An incompatible route runs inline. |
+| Pi | Requires the `pi-task` question package alongside the Lens diagnostics and pi-subagents capabilities. The install command and setup bootstrap install `npm:pi-task` when absent. Verified with Pi 1.4.0 and pi-subagents 0.81.0. Foreground helpers inherit registered model providers without loading ambient extensions; incompatible routes run inline. |
 | Qoder | `qodercli` on `PATH` or in a usual install folder; use `provider: qoder` in YAML. Models come from `qodercli --list-models`; thinking uses `default`. Selected helper definitions are registered for the session. |
 | OMP | `omp` on `PATH` or in a usual install folder; use `provider: omp`. Models and supported thinking levels come from `omp models --json`. Setup links bundled agents; session policy controls native delegation. |
 
@@ -186,7 +186,7 @@ of the skill.
 ## Install
 
 ```bash
-npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi
+npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
 ```
 
 This installs the three skills, only for Claude Code, Codex and Pi, globally and without prompts. Both skills of
@@ -194,17 +194,22 @@ the pipeline are required: `orca-pod-setup` looks for `orca-pod` next to itself 
 and `orca-pod` calls `orca-pod-setup` when a project has no config. `plan-blitz` is optional: without it the
 Planner warns you in one line and asks you to approve the spec and the plan in plain text.
 
+The second part of the command checks Pi and installs its required `npm:pi-task` question package if needed.
+It skips machines without Pi, preserves an existing working version/source and verifies installation before
+reporting success. If installation fails, fix the reported error and rerun the command. Run `/reload` in an
+existing Pi session after a new installation. First-time `orca-pod-setup` also runs this check for older skill installs.
+
 The Coordinator can run in any of these three hosts and launch roles in all five installed providers, including
 Qoder and OMP. Authenticate each selected CLI before launching roles; catalog discovery checks model metadata.
 
 What it does: a global install (`-g`) puts the skill folders in `~/.agents/skills/` (`orca-pod`, `orca-pod-setup`,
 `plan-blitz`), which Codex and Pi read directly, and links them for Claude Code, for example
-`~/.claude/skills/orca-pod -> ../../.agents/skills/orca-pod`. Nothing else is created.
+`~/.claude/skills/orca-pod -> ../../.agents/skills/orca-pod`. Pi packages are managed through Pi's own installer.
 
 Alternative: install into every agent the `skills` CLI supports.
 
 ```bash
-npx skills add Salesao/orca-pod -g --all
+npx skills add Salesao/orca-pod -g --all && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
 ```
 
 `--all` means every skill for every supported agent (about 79 today), so it creates `orca-pod`,
@@ -216,18 +221,20 @@ agent session after installing (in Pi, `/reload`) so the skills are picked up.
 
 ## Pi question window
 
-**pi-task** is a standalone Pi package that provides the **`pi_task`** question tool. Install it from a local
-checkout of its separate repository, then reload extensions or restart Pi:
+**pi-task** is a standalone Pi package that provides the **`pi_task`** question tool. It is a required dependency
+for Pi setup and is installed by the combined command above. For manual installation or use without orca-pod:
 
 ```bash
-pi install /absolute/path/to/pi-task
+pi install npm:pi-task
 ```
 
-The skills installer does not install this package. The setup extension provides `orca_pod_setup` for the
-browser form; `pi-task` owns the question window used by plan-blitz. It also works independently of orca-pod.
+Reload extensions or restart Pi after installing. The setup extension provides `orca_pod_setup` for the browser
+form; `pi-task` owns the question window used by plan-blitz. Both packages remain independent.
 Use the arrow keys and Enter to choose an option, **Type something.** for a free answer, and tabs plus
 **Submit** for several questions. Esc cancels the question window after leaving an active text editor.
-An already installed legacy `orca_pod_ask` remains a fallback when `pi_task` is unavailable.
+If `pi_task` stays unavailable after reload, inspect disabled package resources with `pi config`. Report a
+failed required installation explicitly. Legacy `orca_pod_ask` and numbered text remain runtime fallbacks for
+an unavailable question window or an explicit user choice.
 
 ## First run
 
@@ -359,7 +366,7 @@ The questions appear in each agent's own question window:
 | --- | --- | --- |
 | Claude Code | `AskUserQuestion` | Built in. |
 | Codex | `request_user_input` in Plan, `request_user_input_async` outside Plan | Planner enters verified Plan before its first task. Document saves briefly use Default and verify the return to Plan. |
-| Pi | `pi_task` | Standalone pi-task package, with installed legacy `orca_pod_ask` or text as fallbacks. |
+| Pi | `pi_task` | Required standalone pi-task dependency, installed during setup; legacy `orca_pod_ask` or text are runtime fallbacks. |
 | Qoder | `AskUserQuestion` | Native window when exposed. |
 | OMP | `ask` | Native window in interactive sessions. |
 
@@ -505,7 +512,7 @@ node ~/.agents/skills/orca-pod/scripts/launch-provider.mjs --profiles
 - **Pi says `Cannot find module '@earendil-works/pi-ai'`.** The extension of orca-pod 0.1.0 needed Pi 0.74 or
   newer. Install the skills again (see Install) and run `/reload` in Pi, or update Pi with `pi update --self`.
 - **`PIPELINE CONFIG REJECTED`.** The message names the file and the exact field. Fix it with `orca-pod-setup`.
-- **Pi does not show `pi_task`.** Install the local package with `pi install /absolute/path/to/pi-task` and reload Pi.
+- **Pi does not show `pi_task`.** Rerun `orca-pod-setup` or `pi install npm:pi-task`, then `/reload`. If already installed, check package resources with `pi config` instead of adding a duplicate source.
 - **Many `tsserver` processes in Pi.** Each helper that loads your Pi extensions starts its own pi-lens `tsserver`.
   Run `orca-pod-setup` again so it links the `orca-*` helpers (look for `LINK` lines); a `SKIP` means a file with
   that name already exists in `~/.pi/agent/agents/`.

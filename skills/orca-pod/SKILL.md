@@ -267,6 +267,14 @@ thinking), the review mode, the subagent limit and "full access (yolo)" when
 - An answer through "Other" must exactly match the name of a valid profile from
   `--profiles`; otherwise ask again and do not substitute it into commands.
 
+When the selected profile contains Pi roles, run
+`node <skill-dir>/../orca-pod-setup/scripts/ensure-pi-task.mjs --check` before
+creating terminals. If the required question package is missing or damaged, run
+the same script without `--check` to install/repair it and report the result.
+Do not claim Pi preflight is ready after an installation error. Existing Pi
+sessions need `/reload` to expose `pi_task` after installation; new role sessions
+load the package at startup. The bootstrap preserves existing working sources.
+
 Resolve each selected role with `launch-provider.mjs --role <role> --profile <selected> --resolve --coordinator` before creating terminals. Include its effective access, enforcement, helper selection and warnings in the launch summary. The
 Coordinator's access is selected by `--coordinator`; project YAML cannot select a
 different permission mode for these launches.

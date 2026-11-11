@@ -8,8 +8,9 @@ description: Use when a user needs to create, explain, or reconfigure a project'
 This skill creates or changes the project's `.orca-pod/orca-pod.yaml` and connects the
 pipeline's helper agents. Do not run the pipeline roles, Orca Run or subagents.
 
-This skill configures only the YAML: profiles, role agents (provider), models, thinking,
-helpers and the limit of concurrent subagents.
+This skill configures the YAML: profiles, role agents (provider), models, thinking,
+helpers and the limit of concurrent subagents. It also prepares Pi's required
+published question package when Pi is installed.
 The Coordinator chooses additional skills separately, by the
 [selection rules](../orca-pod/references/skill-selection.md);
 the Planner always uses `using-superpowers` and `plan-blitz`. These are not YAML fields.
@@ -38,6 +39,24 @@ Read an existing file before changing anything.
 
 ## 2. Connect the helper agents
 
+Pi setup requires the published `npm:pi-task` question package alongside Pi's
+Lens and subagent capabilities. Before linking extensions, run:
+
+```bash
+node <skill-dir>/scripts/ensure-pi-task.mjs
+```
+
+This finds Pi on PATH or in the usual install folders, installs `pi install npm:pi-task`
+when absent and verifies its files. Existing working npm, pinned, Git or local
+installations are preserved. `SKIP` means Pi is unavailable; non-Pi setup can
+continue. An error means Pi setup is incomplete: show the reason and the recovery
+command, then resolve it before claiming Pi is ready. Do not silently substitute
+the legacy question tool for a failed required installation. `--check` checks
+the dependency without installing anything. The default command timeout is 120 seconds.
+Report `INSTALLED` and request `/reload` in an existing Pi session; if `pi_task`
+is still unavailable, check disabled package resources with `pi config` rather
+than installing a second copy. This bootstrap is part of the requested setup.
+
 Run (idempotent, does not replace existing regular files or live links of others, relinks dangling ones):
 
 ```bash
@@ -65,12 +84,12 @@ Link the Pi setup extension:
 <skill-dir>/scripts/link-pi-extension.sh
 ```
 
-It provides only `orca_pod_setup`. Run `/reload` after a new link. Existing
-foreign links are preserved and reported. The question window is the independent
-`pi-task` package. To use it, install with `pi install /absolute/path/to/pi-task`
-from a local checkout and reload Pi. Missing pi-task does not block setup or
-planning. Use an already installed legacy `orca_pod_ask` or numbered text.
-Setup does not install pi-task.
+It provides only `orca_pod_setup`; the independent pi-task package provides
+`pi_task`. Run `/reload` after a new link or dependency installation. Existing
+foreign links are preserved and reported. In Codex, run the dependency bootstrap
+with elevated permissions when required, just like the link scripts. Install
+failure must be reported; a user-requested text question or unavailable terminal
+UI is a separate runtime fallback, not proof that the dependency was installed.
 
 ## 3. Choose the path for the current agent
 

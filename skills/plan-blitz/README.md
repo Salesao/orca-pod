@@ -36,6 +36,9 @@ again for a plan revision, where it covers only what changed.
 
 Codex prefers `request_user_input` in Plan and `request_user_input_async` outside Plan. The agent waits for your actual reply. Pi uses the standalone package's `pi_task`, then an installed `orca_pod_ask`. Claude Code and Qoder can use `AskUserQuestion`, and OMP can use `ask`. When no permitted question window is available, use numbered text.
 
+For Pi, orca-pod installation and setup ensure the required published pi-task package. To use plan-blitz
+independently, run `pi install npm:pi-task`, then `/reload` in Pi. Installation errors must be reported explicitly.
+
 Compare the plan with approved upstream documents. An answer that revises an approved outcome is saved in the upstream document and plan and approved once for both versions.
 
 The rules are in [SKILL.md](SKILL.md). For installation, see the [repository README](../../README.md).

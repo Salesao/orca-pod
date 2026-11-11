@@ -26,5 +26,5 @@ export function findPipelineSkill(setupSkillDir) {
 }
 
 export function PIPELINE_MISSING(expected) {
-  return 'orca-pod skill not found at ' + expected + '; orca-pod-setup needs it next to itself — install the skills: npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi';
+  return 'orca-pod skill not found at ' + expected + '; orca-pod-setup needs it next to itself — install the skills: npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"';
 }

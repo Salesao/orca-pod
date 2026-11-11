@@ -199,7 +199,7 @@ test("README: every file named in the layout tree exists", () => {
 test("README: setup-specific requirements and the link to the repository README", () => {
   const text = flat(README);
   assert.match(text, /\]\(\.\.\/\.\.\/README\.md\)/);
-  for (const needle of ["orca_pod_setup", "scripts/link-pi-extension.sh", "link-agents.sh", "pi --list-models", "pi install /absolute/path/to/pi-task", "/reload"]) {
+  for (const needle of ["orca_pod_setup", "scripts/link-pi-extension.sh", "link-agents.sh", "ensure-pi-task.mjs", "pi --list-models", "pi install npm:pi-task", "/reload"]) {
     assert.ok(text.includes(needle), `README does not mention ${needle}`);
   }
 });
@@ -273,6 +273,8 @@ test("setup describes the profile backup and standalone question package", () =>
   const settings = flat(readDoc("references/settings.md"));
   assert.match(settings, /orca-pod\.yaml\.backup-/);
   assert.match(settings, /choose up to five profiles/);
-  assert.match(flat(SKILL), /pi install \/absolute\/path\/to\/pi-task/);
+  assert.match(flat(SKILL), /ensure-pi-task\.mjs/);
+  assert.match(flat(SKILL), /pi install npm:pi-task/);
+  assert.doesNotMatch(flat(SKILL), /Setup does not install pi-task|Missing pi-task does not block setup/);
   assert.match(flat(SKILL), /provides only `orca_pod_setup`/);
 });

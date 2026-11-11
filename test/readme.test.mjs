@@ -86,8 +86,9 @@ function withHome(run) {
   }
 }
 
-const TARGETED_INSTALL = "npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi";
-const ALL_INSTALL = "npx skills add Salesao/orca-pod -g --all";
+const PI_BOOTSTRAP = 'node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"';
+const TARGETED_INSTALL = 'npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi && ' + PI_BOOTSTRAP;
+const ALL_INSTALL = 'npx skills add Salesao/orca-pod -g --all && ' + PI_BOOTSTRAP;
 const REMOVE = "npx skills remove orca-pod orca-pod-setup plan-blitz -g -y";
 
 /** Every markdown document of the skills plus the root README (the docs a newcomer can read). */

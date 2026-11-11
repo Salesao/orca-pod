@@ -37,7 +37,7 @@ function fakePipelineSkill(dir) {
 test("PIPELINE_MISSING: the exact text with the expected path and the install command", () => {
   assert.equal(
     PIPELINE_MISSING("/x/skills/orca-pod"),
-    "orca-pod skill not found at /x/skills/orca-pod; orca-pod-setup needs it next to itself — install the skills: npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi",
+    'orca-pod skill not found at /x/skills/orca-pod; orca-pod-setup needs it next to itself — install the skills: npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"',
   );
 });
 
@@ -93,7 +93,8 @@ test("setup-form.mjs from a lone copy of orca-pod-setup: exit 2, JSON status err
   const outcome = JSON.parse(lines[0]);
   assert.equal(outcome.status, "error");
   assert.equal(outcome.error, PIPELINE_MISSING(path.join(root, "skills", "orca-pod")));
-  assert.match(outcome.error, /npx skills add Salesao\/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi$/);
+  assert.match(outcome.error, /npx skills add Salesao\/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi && node/);
+  assert.match(outcome.error, /ensure-pi-task\.mjs"$/);
   assert.doesNotMatch(outcome.error, /--all/);
   assert.doesNotMatch(result.stderr, /ERR_MODULE_NOT_FOUND/);
 }));
