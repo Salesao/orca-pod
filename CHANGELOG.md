@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.9.8 - 2026-11-11
+
+### Added
+
+- **Qoder and OMP role providers.** Setup discovers their model catalogs and supported reasoning levels; the
+  launcher registers selected native helpers and applies session permissions and delegation policy.
+- **Custom helper roles in the setup form.** Define a name, one-line description, multiline instructions, model
+  and thinking. Definitions are saved in the project YAML and registered for the launched session.
+- **Required Pi question package.** The combined installation command and setup install `npm:pi-task` when
+  absent. Existing npm, pinned, Git and local installations are preserved; failed installations are reported.
+  Pi roles check the dependency before launch. The independent package provides `pi_task`.
+
+### Changed
+
+- **Five profiles and unlimited custom helpers.** Each role can select up to three preset specializations and
+  any number of custom helpers. Concurrency remains independent: 6 by default, range 1–100. Profile migration
+  keeps the active profile and four others, with a complete backup of the original settings.
+- **Pi helpers preserve registered model providers without ambient diagnostics.** One child checks a new
+  provider/model route before parallel dispatch; incompatible routes fall back to inline work.
+- **Targeted checks and one cumulative final pass.** Fix verification covers the delta and affected consumers;
+  Chief checks its own late fixes. Required checks that remain unavailable after bounded retry and fallback
+  yield `COMPLETED_UNVERIFIED` when work is complete and blocking findings are resolved.
+- **Grounded plan blitz and real Codex Plan mode.** Questions use recorded decisions and approved documents.
+  Codex Planner enters verified Plan mode before task delivery; document saves verify the return to Plan.
+- **Explicit session policy.** Coordinator launches request supported YOLO permissions. Direct launches use
+  `full_access`; disabled delegation uses the strongest supported session controls and reports limitations.
+- README and setup guidance in English and Russian now cover the expanded workflow and Pi dependency install.
+
 ## 0.2.1 - 2026-10-21
 
 ### Fixed
