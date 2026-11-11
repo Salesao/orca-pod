@@ -6,7 +6,7 @@
 implementation and an optional independent review, in Claude Code, Codex or Pi. You start it from your agent
 session, and each role runs in its own terminal in [Orca](https://www.onorca.dev) (the app that opens and manages these
 terminals; its command is `orca`). Use it when a task needs an approved plan before any code is written. The run ends with a final status:
-`FINAL_APPROVED`, `SELF_VERIFIED` or `BLOCKED`.
+`FINAL_APPROVED`, `SELF_VERIFIED`, `COMPLETED_UNVERIFIED` or `BLOCKED`.
 
 ```
 /orca-pod <RAF task path | task description>
@@ -62,10 +62,9 @@ Findings have four severities: `BLOCKER`, `MAJOR`, `MINOR` and `NIT`. Only `BLOC
 limited: up to 3 rounds per stage and up to 2 attempts for the chief review (3 when the Chief Reviewer is the only
 reviewer); if it does not converge, the status becomes `BLOCKED` and you decide.
 
-Each profile has its own concurrent-subagent limit (`max_subagents`, 6 by default,
-up to 100) and a `full_access` switch. `full_access` is off by default; when it is
-on, Codex and Claude Code roles skip their permission prompts and run without a sandbox.
-The roles, models and profiles are all set in `orca-pod.yaml`.
+There are up to three profiles. Each has its own `max_subagents` (6 by default,
+1–100) and `full_access` for direct launches. Coordinator uses the supported YOLO
+mode. Roles and models are set in `orca-pod.yaml`.
 
 ## Requirements
 
@@ -77,12 +76,9 @@ The roles, models and profiles are all set in `orca-pod.yaml`.
 - Orca with the `orca` command, and the `orca-cli` skill. Orca installs the skill itself:
   `orca skills install --skill orca-cli`. Check with `orca skills installed`. Without
   the skill the pipeline does not stop and relies on `orca --help`.
-- Pi, Claude Code and/or Codex.
-  - Pi needs the subagent package `npm:pi-subagents` version 0.78.0. Do not install
-    `pi-interactive-subagents` next to it: both packages provide the `subagent` tool
-    and conflict. The Pi helpers from `agents/pi/` are linked into `~/.pi/agent/agents/`
-    by `scripts/link-agents.sh`; the `orca-*` ones start without your Pi extensions, so
-    pi-lens (and its `tsserver`) runs only in the role and in at most one helper.
+- Pi, Claude Code, Codex, Qoder or OMP.
+  - Pi helpers were verified with `npm:pi-subagents` 0.81.0. The role retains Lens;
+    local helpers inherit model providers without loading diagnostic extensions.
   - For Claude Code, the helpers from `agents/claude/` are linked into `~/.claude/agents/`
     by `scripts/link-agents.sh`.
   - For Codex, the launcher registers the helpers from `agents/codex/` (`orca_worker`,
@@ -107,7 +103,7 @@ orca-pod/
 ├── agents/
 │   ├── claude/*.md          helpers for Claude Code: scout, worker, reviewer,
 │   │                        researcher, oracle, evidence-auditor, verifier
-│   ├── pi/*.md              helpers for Pi: lens-checker, verifier and orca-*
+│   ├── pi/*.md              helpers for Pi: role helper definitions
 │   │                        (worker, reviewer, scout, oracle, evidence-auditor
 │   │                        without your extensions)
 │   ├── codex/*.toml         helpers for Codex (orca_*), registered by the launcher
@@ -150,3 +146,5 @@ project's `.gitignore` by `orca-pod-setup/scripts/ensure-gitignore.sh`, and only
 - Helper subagents make no decisions about the plan, a stage or the final status.
 - It does not resume an interrupted run — a new run is a new invocation of the skill.
 - It does not work without Orca: all roles run in its terminals.
+
+Coordinator uses each provider’s supported YOLO mode. The `full_access` setting controls direct launches. The caps are three profiles and three specializations per role. A complete backup is saved beside an upgraded YAML. Install the optional `pi_task` window separately with `pi install /absolute/path/to/pi-task`.

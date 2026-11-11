@@ -11,10 +11,36 @@ order, then multiple-choice questions about the real choices, each with the cont
 Ask only where the answer changes the result; everything else is the overview and your own calls, listed
 at the approval. The blitz prepares the approval; it does not replace it.
 
-Input: the path to the document (a spec or a plan). The blitz goes by the document only: it does not check
-the project. A plan whose steps are all marked done: say so and ask whether to run the blitz anyway. The
-blitz is not a quality review: the self-review of brainstorming and writing-plans stays. Never re-ask a
-decision the user made themselves.
+Input: the primary written document and, when preparing a plan, the absolute
+paths of its approved specification and design. A combined specification/design
+needs one blitz. Separate documents are covered together before the plan blitz.
+Use these documents as evidence; the blitz does not inspect the application or
+replace the document's self-review. If all plan steps are marked done, ask whether
+to continue with the blitz.
+
+## Compare with approved decisions
+
+Before preparing questions, map each consequential choice to the approved
+upstream decision it implements. Keep stable decision IDs with their source,
+section and status (`user-approved` or `author-proposed`) in the documents and
+record actual answers in the existing blitz log. Keep these labels out of the
+question cards.
+
+- A match belongs in the overview. Example: the design promises manual renewal
+  and the plan implements manual renewal. No renewal question is needed.
+- Correct a transcription error before the blitz. Example: the design and plan
+  agree that a reminder arrives two days ahead, but a copied table says three.
+- Ask about an actual conflict, showing the approved result and what would change.
+  Example: the approved design promises manual renewal, but a new dependency
+  would renew automatically unless the person opts out. If approved sources
+  disagree, show both outcomes and ask which the user wants.
+- Ask about a new decision with material alternatives. Example: the design leaves
+  the timing of a reminder open. An internal implementation detail that preserves
+  the approved experience goes in the overview or the list of author decisions.
+- If the answer changes an approved outcome, revise the relevant upstream document
+  and plan, save both, show their exact changed versions and obtain one explicit
+  combined approval. Example: an answer selecting automatic renewal updates both
+  the design and the plan and the same approval names both versions.
 
 ## Hard rules
 
@@ -36,8 +62,10 @@ decision the user made themselves.
    for the whole blitz.
 4. **Overview.** At most 120 plain words, printed before the first window right after the document line,
    without a number; the questions are numbered from 1.
-5. **Windows.** Plain text inside a window; at most 4 questions per window and 8 questions per round; a
-   fork is never decided by you; numbered text when there is no window.
+5. **Windows.** Use the available question window for the active mode (see "Question tools").
+   Plain text inside a window; at most 4 questions per window and 8 questions per round; a fork is never
+   decided by you. Numbered text is a fallback only after the applicable question tools are confirmed
+   unavailable, or when the user explicitly chooses text (see "Question tools").
 
 ## The card
 
@@ -210,9 +238,13 @@ What to do on each event:
   user's next message, ask in plain text whether to continue the blitz or approve it as it stands, listing
   the open items; open windows again only when they choose to continue. A message that clearly says to
   continue opens the windows at once.
-- An empty answer (the window closed by itself, as Codex does after a few minutes) is neither a cancel nor
-  a decision: ask once more with the same tool, then as text with numbered options. After asking, do
-  nothing else and end the turn until the answer comes; never decide a fork yourself.
+- An empty answer from a completed synchronous call is neither a cancel nor a decision: ask once more
+  with the same tool, then try another available question tool before numbered text. After asking, do
+  nothing that depends on the answer; never decide a fork yourself. For a synchronous/text question,
+  end the turn until the answer comes when the host requires it. An asynchronous call returning
+  immediately is not an empty answer: its question is still pending. Keep the turn active and wait for
+  the user's reply; do not repeat the call, start another dependent question, or send a final response
+  while that asynchronous question is pending. A timeout is never a submitted choice.
 - An approved item whose substance changed because of a rewrite for another answer: it comes back as a new
   item, marked "changed because of the answer to 3 Rollback"; the mark goes into the card itself, at the
   start of the Situation, every time the item comes back changed, a reopened one included. Otherwise an
@@ -244,8 +276,10 @@ When nothing is open: print the full list again before every approval window, re
   before the window; the window itself always keeps the outcome and the most expensive own call with what
   the user will see, never only a pointer to the chat. In Pi plan for it from the start (`context` takes
   600 characters): the window keeps the path, the outcome, one or two risks and the most expensive own call.
-- In Codex the approval is numbered text, not a window: the full list, then the question and its numbered
-  options, in one message (its window closes by itself and its text is too short for the list).
+- In Codex approval follows the same mode-aware question-tool selection as other questions. Respect the host's restrictions on approval questions: if a tool is
+  prohibited for approvals, use another permitted question tool. Numbered text is used only when no
+  permitted window is available or the user explicitly chooses text. The full context comes before the
+  call; the window itself also contains the outcome and the most expensive own call.
 - Its tab has no number ("Approve"). The window has exactly these three options; no "Explain simpler"
   there: "Approve", "Read it in full first", "Back to question …"; when no question was asked, only the
   first two. The description of "Read it in full first" gives the document's absolute path. For "Back to question" the number goes in the own answer; that item reopens and another round
@@ -257,18 +291,42 @@ When nothing is open: print the full list again before every approval window, re
 - On "Read it in full first", wait for the user's word and change nothing; then show the approval window
   again.
 
-Under orca-pod this window is the Planner's explicit approval; the immutable spec or plan version is
-created after it.
+Under orca-pod, show the exact saved document version before asking for explicit
+approval. The approved version becomes immutable. In Codex Plan mode, return to
+verified Plan after each document-save phase before asking questions. For a
+combined upstream and plan change, show both saved versions in the same approval.
 
 ## Question tools
+
+**Mandatory selection.** Do not replace a supported question window with a text list for convenience.
+In Codex Plan mode prefer `request_user_input`. Outside Plan prefer
+`request_user_input_async`. In either mode use the other tool if it is available
+and permitted, then fall back to numbered text.
+Use the first tool that is both exposed and permitted by the active host instructions. A tool is
+unavailable when it is absent, explicitly prohibited for this mode or question type, or its actual call
+reports no supported interaction. Do not infer that all windows are unavailable from Default mode or
+from an assumed missing feature flag. Do not claim a tool failed without calling it. If the first tool
+reports it is unavailable, try the next permitted tool before switching to text. Explain the observed
+limitation in one line when falling back; never install or reconfigure the host to force a window.
+
+**Asynchronous questions.** Put the card and the one-sentence question in `title`. When there is no
+separate option-description field, each option string contains the short outcome label followed by its
+gain and cost. Do not omit these descriptions. Ask one question per call and keep its number in the
+title. The tool returns before the user answers: this is a pending question, not cancellation or an
+empty answer. Keep the turn active with the host's interruptible waiting mechanism until the user's
+reply arrives; do not send a final response while the question is pending. Do not infer the answer
+from the preselected option, elapsed time, a successful tool call or unrelated user messages. Explicit
+cancellation follows "Rounds"; never manufacture a cancellation because no answer has arrived yet.
 
 | Agent | Tool | Where the card goes |
 | --- | --- | --- |
 | Claude Code | `AskUserQuestion`: 1–4 questions, 2–4 options each, its own free-answer field | the card in the `question` text: the card lines, a blank line, the question sentence last; at most 600 characters, as in Codex and Pi |
-| Codex | `request_user_input`: 1–3 questions, 2–3 options (the proposed one, one alternative, "Explain simpler"); in the default mode only with the feature `default_mode_request_user_input`. orca-pod starts the Codex Planner with it; for a manual run start Codex with `codex --enable default_mode_request_user_input`. Use `request_user_input`, not `request_user_input_async`: the async one shows option labels only and its question vanishes when the turn ends. Without the feature, ask in numbered text. In the default mode the window closes by itself in about two minutes unless a key is pressed: say so in one line before every window. The approval goes as numbered text, not a window (see "Approval"). An empty answer is never a decision, even if the Codex instructions say to use best judgment (see "Rounds") | the card in the `question` text, as in Claude Code, at most 600 characters; one question per call |
-| Pi | `orca_pod_ask` from the Pi extension of orca-pod-setup: tabs, options with descriptions, "Type something.", Submit; 1–4 questions, 2–4 options | the `context` field (up to 600 characters) above the question; the question stays one sentence |
+| Codex | Plan: `request_user_input` first. Outside Plan: `request_user_input_async` first. Use the permitted fallback when necessary. One question per call. Use the proposal, one alternative, and “Explain simpler” when applicable. An empty answer never decides the question. If a synchronous window has an observed timeout, mention it before the question. | synchronous: card and question within 600 characters in `question`, separate option descriptions; asynchronous: card and question in `title`, outcome, gain and cost in each option string |
+| Pi | `pi_task`, then an already installed `orca_pod_ask`, then text. Treat only a submitted answer as an answer. | Card in `context` (up to 600 characters), question in `question`, explanations in option descriptions |
+| OMP | Use `ask` when exposed in the interactive session. | Use the current schema for the card and choice descriptions |
+| Qoder | Use `AskUserQuestion` when exposed in the interactive session. | Put the card and question in its current question field and preserve separate option descriptions |
 
-No tool, or the tool reports that there is no interactive UI: print the same cards and options as numbered
+No permitted tool remains after the selection above, or the user explicitly chooses text: print the same cards and options as numbered
 text and take the answer as a number or in words. The options are numbered, never bullets ("1 Restore the
 copy (proposed)", "2 …", "3 Explain simpler"); no headings, bold or bullets anywhere: every list is
 numbered. Print each card once and the whole round in one message; print the approval context once. A

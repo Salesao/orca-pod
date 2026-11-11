@@ -68,8 +68,8 @@ the Planner turns it into a proper spec and plan). A path takes priority over te
 
 Then switch to the Planner terminal in Orca. The Planner writes the spec and the plan and asks you multiple-choice
 questions before each approval (a [plan blitz](#plan-blitz)); after you approve, the Implementer carries the plan
-out. The run ends with one of three statuses: `FINAL_APPROVED` (the final reviewer approved), `SELF_VERIFIED` (there
-are no reviewers and the Implementer's self-check passed) or `BLOCKED` (the review did not reach agreement; you
+out. The run ends with a terminal status: `FINAL_APPROVED` (the final reviewer approved), `SELF_VERIFIED` (there
+are no reviewers and the Implementer's self-check passed), `COMPLETED_UNVERIFIED` (required checks unavailable after retry and fallback) or `BLOCKED` (the review did not reach agreement; you
 decide). Not ready for real work? Try the built-in demo first: [Test mode](#test-mode). More in
 [Install](#install), [First run](#first-run) and [Running a task](#running-a-task).
 
@@ -163,7 +163,7 @@ Per agent:
 | --- | --- |
 | Claude Code | `claude` on `PATH` or in a usual install folder (`~/.local/bin`, `~/.claude/local`, Homebrew, nvm and others). The helper agents from `skills/orca-pod/agents/claude/` are linked into `~/.claude/agents/` by `orca-pod-setup`. |
 | Codex | `codex` on `PATH` or in a usual install folder. The `orca_*` helper agents are registered by the launcher, only inside each role's session. For roles to run `orca` inside the Codex sandbox you need the rule `prefix_rule(pattern=["orca"], decision="allow")` in `~/.codex/rules/default.rules`; `orca-pod-setup` offers to add it (it asks first). The rule is not needed when the profile uses `full_access`. |
-| Pi | `pi` on `PATH` or in a usual install folder, Pi 0.73.1 or newer (both before and after Pi renamed its packages from `@mariozechner/*` to `@earendil-works/*` in 0.74), and the package `npm:pi-subagents` at version 0.78.0. Do not combine it with `pi-interactive-subagents`: both provide the `subagent` tool and they conflict. `pi-lens` is recommended; the `lens-checker` helper and the Pi self-check use it. The Pi helpers `orca-worker`, `orca-reviewer`, `orca-scout`, `orca-oracle` and `orca-evidence-auditor` are linked by `orca-pod-setup`; they start without your Pi extensions, so pi-lens (and its `tsserver`) runs only in the role and in at most one helper. Give these helpers a model from a built-in or `models.json` provider: a model from a provider extension (for example pi-claude-bridge) does not load in them, and the role then runs the bundled helpers one at a time. |
+| Pi | Verified with Pi 1.4.0 and pi-subagents 0.81.0. The role retains Lens for its checks. Local foreground helpers inherit registered model providers without loading ambient extensions. An incompatible route runs inline. |
 
 orca-pod does not resume an interrupted run. If a run dies, start a new one: a new run is a new invocation
 of the skill.
@@ -249,7 +249,7 @@ description. What happens next:
 2. Switch to the Planner terminal in Orca. The Planner researches the code, writes the spec and the plan, and before each
    approval runs a [plan blitz](#plan-blitz): short rounds of multiple-choice questions. Answer them there.
 3. After approval the Implementer takes over, runs the waves, and sends stages to review. The run ends with a final
-   status: `FINAL_APPROVED`, `SELF_VERIFIED` or `BLOCKED` (the review did not converge; you decide).
+   status: `FINAL_APPROVED`, `SELF_VERIFIED`, `COMPLETED_UNVERIFIED` or `BLOCKED` (the review did not converge; you decide).
 4. Review and self-check reports are written to `<project root>/.orca-pod/reports/<planVersion>/`.
 
 The skill never creates worktrees, and git writes (commit, push, stash, reset, branch) happen only with your
@@ -286,10 +286,12 @@ The questions appear in each agent's own question window:
 | Agent | Question window | Notes |
 | --- | --- | --- |
 | Claude Code | `AskUserQuestion` | Built in. |
-| Codex | `request_user_input` | In its default mode it is available only behind a feature flag. orca-pod turns it on for a Codex Planner; for a manual run start Codex with `codex --enable default_mode_request_user_input`. The window closes by itself after about two minutes (the blitz then asks again); the approval there is numbered text, not a window. |
-| Pi | `orca_pod_ask` | Comes from the extension that `orca-pod-setup` links; run `/reload` in Pi after setup. |
+| Codex | `request_user_input` in Plan, `request_user_input_async` outside Plan | Planner enters verified Plan before its first task. Document saves briefly use Default and verify the return to Plan. |
+| Pi | `pi_task` | Standalone pi-task package, with installed legacy `orca_pod_ask` or text as fallbacks. |
+| Qoder | `AskUserQuestion` | Native window when exposed. |
+| OMP | `ask` | Native window in interactive sessions. |
 
-Without such a window the blitz asks in numbered text. Details: [skills/plan-blitz/README.md](skills/plan-blitz/README.md) and [SKILL.md](skills/plan-blitz/SKILL.md).
+Only when no permitted question window is available, or you explicitly choose text, the blitz asks in numbered text. Details: [skills/plan-blitz/README.md](skills/plan-blitz/README.md) and [SKILL.md](skills/plan-blitz/SKILL.md).
 
 ## Test mode
 
@@ -325,17 +327,15 @@ The protocol stays English whatever you choose: the `ROLE:` and `LANGUAGE:` prom
 ## Full access
 
 > [!WARNING]
-> With `full_access: true` the Codex and Claude Code roles skip their permission prompts and run without a sandbox,
-> so a role can change anything on the machine. Codex roles start with
-> `--dangerously-bypass-approvals-and-sandbox` and Claude Code roles with `--dangerously-skip-permissions`. Pi roles
-> are unchanged. A first-run trust or bypass question can still appear in a role's terminal; see
-> [Troubleshooting](#troubleshooting).
+> Coordinator launches each role with the provider's supported YOLO option. These
+> sessions can perform edits and commands without the usual approval prompts.
 
-It is off by default and exists only as the "Full access" switch of a profile in the setup form: no skill or role
-turns it on by itself or offers it as a way around a refusal. If a config you did not write yourself enables it
-(the file is tracked by git, or it was just migrated), the Coordinator asks you to confirm before it starts any
-terminal. Use it only on a machine and in a project you trust, ideally in a disposable worktree or VM. Without it,
-Codex and Claude Code roles ask for permission in their own terminals; answer there.
+Codex uses `--dangerously-bypass-approvals-and-sandbox`, Claude Code and Qoder
+use `--dangerously-skip-permissions`, and OMP uses `--approval-mode=yolo`.
+Pi uses the current host permissions. The profile's `full_access` setting
+controls direct launches. The Coordinator reports the effective access of each
+role. The first workspace trust prompt or Codex planning-hook trust prompt may
+still require an answer in the role's terminal. [Troubleshooting](#troubleshooting).
 
 ## Configuration
 
@@ -382,9 +382,9 @@ profiles:
 | Key | Meaning |
 | --- | --- |
 | `active_profile` | The default profile, offered first at launch. |
-| `default_provider` | The agent (the config calls it a provider). At the top of the file: the fallback for profiles that name none. In a profile: the agent for roles without a `provider`. One of `pi`, `claude-code`, `codex`. |
+| `default_provider` | The agent (the config calls it a provider). At the top of the file: the fallback for profiles that name none. In a profile: the agent for roles without a `provider`. One of `pi`, `claude-code`, `codex`, `qoder`, `omp`. |
 | `language` | `auto` (default) or a language tag such as `en`, `ru`, `pt-BR`. |
-| `profiles` | Named profiles; each has its own roles, agents, models and limits. |
+| `profiles` | One to three named profiles, each with its own roles, models and limits. |
 | `max_subagents` | Per profile: how many subagents one role runs at once, an integer 1–100, default 6. |
 | `full_access` | Per profile: see the warning above; `false` if absent. |
 | `roles` | `planner` and `implementer` are required; `reviewer` and `chief_reviewer` are optional and select the review mode. |
@@ -418,11 +418,11 @@ node ~/.agents/skills/orca-pod/scripts/launch-provider.mjs --profiles
 - **Pi says `Cannot find module '@earendil-works/pi-ai'`.** The extension of orca-pod 0.1.0 needed Pi 0.74 or
   newer. Install the skills again (see Install) and run `/reload` in Pi, or update Pi with `pi update --self`.
 - **`PIPELINE CONFIG REJECTED`.** The message names the file and the exact field. Fix it with `orca-pod-setup`.
-- **The `orca_pod_setup` or `orca_pod_ask` tool is missing in Pi.** Run `/reload` in Pi after setup has linked the extension; without `orca_pod_ask` the blitz asks in numbered text.
+- **Pi does not show `pi_task`.** Install the local package with `pi install /absolute/path/to/pi-task` and reload Pi.
 - **Many `tsserver` processes in Pi.** Each helper that loads your Pi extensions starts its own pi-lens `tsserver`.
   Run `orca-pod-setup` again so it links the `orca-*` helpers (look for `LINK` lines); a `SKIP` means a file with
   that name already exists in `~/.pi/agent/agents/`.
-- **Two `subagent` tools in Pi.** Remove `pi-interactive-subagents`; keep `npm:pi-subagents` 0.78.0.
+- **Two `subagent` tools in Pi.** Remove `pi-interactive-subagents`; keep `npm:pi-subagents` 0.81.0.
 - **A run was interrupted.** Start a new invocation; runs are not resumed.
 
 ## Uninstall
@@ -476,3 +476,13 @@ CI runs the same command on Node 20.
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+## Role launch and verification
+
+Roles support Pi, Codex, Claude Code, Qoder and OMP. Coordinator requests the supported session-local YOLO mode for every role and reports the effective access. Pi uses host permissions. The `full_access` switch controls direct launches. Delegation is independent.
+
+A configuration has at most three profiles. A role has at most three helper specializations. Explicit selections replace defaults; concurrent instances remain a separate limit of 6 by default, 1–100. Setup and Coordinator preflight retain the active profile and the first two others and keep a complete backup beside the original configuration.
+
+Diagnostics are targeted during work. The last stage has one cumulative pass. Fix checks cover the fix and affected consumers, including fixes requested by Chief. Required coverage that remains unavailable after retry and fallback yields `COMPLETED_UNVERIFIED` when the other work is complete and blockers are resolved.
+
+Install the optional Pi question window with `pi install /absolute/path/to/pi-task` from a local checkout. [Verified provider versions and limitations](docs/compatibility/2026-11-11-provider-capabilities.md).

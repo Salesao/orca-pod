@@ -725,3 +725,14 @@ Approval (2026-11-11): the user explicitly approved the complete design after
 discussing document persistence and the restriction on using subagents to bypass
 Plan mode. Both language versions are approved together. Implementation planning
 can proceed; this approval does not claim the implementation plan is approved.
+
+## User-approved access amendment
+
+On 2026-11-11 the user directed Coordinator to open all configured role
+terminals in each provider's supported YOLO/full-access equivalent. This
+supersedes the earlier requirement to read Coordinator access from the profile
+toggle. The launcher requests access per session and shows the effective
+result. The profile switch controls direct role launches. Providers without
+a verified equivalent retain host defaults with a visible warning. Delegation
+is independent of access. Codex's trust review for the specific planning-save
+hook remains a host control.

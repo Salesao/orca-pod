@@ -29,7 +29,7 @@ test("the first Planner prompt names its own handle", () => {
 });
 
 // Waiting for children by timer cost hours of a run and gave no information (sleep 150…660 s between waves).
-const WAIT_LINE = "Children: launch them, then wait for completion — Pi and Claude Code: return control, the notification wakes you; Codex: wait_agent; never sleep, timers or status polling.";
+const WAIT_LINE = "When delegation is enabled, use the selected helpers and wait for native completion or foreground results. Codex uses wait_agent. No timers or status polling.";
 
 test("the first role prompts carry the waiting line", () => {
   for (const title of ["First Planner prompt", "First Implementer contract", "First REVIEW_REQUEST", "Reviewer → Chief Reviewer"]) {
@@ -37,17 +37,6 @@ test("the first role prompts carry the waiting line", () => {
   }
 });
 
-test("SKILL.md and subagents.md: wait for children by notification, not by sleep or polling", () => {
-  const flat = SKILL.replace(/\s+/g, " ");
-  assert.match(flat, /\*\*Waiting for children\.\*\* Launch the children, then wait for completion/);
-  assert.match(flat, /in Codex wait with `wait_agent` \(a loop with `timeout_ms` is fine\)/);
-  assert.match(flat, /Do not use `sleep`, timers or polling/);
-  assert.match(flat, /`bg_wait` \(Pi\) is only for work without its own notification/);
-  const sub = SUBAGENTS.replace(/\s+/g, " ");
-  assert.match(sub, /return control: native completion wakes you — no `sleep`, no polling of `status`, no `bg_wait` for these children/);
-  assert.match(sub, /wait for the notifications of all; do not `sleep` or poll/);
-  assert.match(sub, /`wait_agent` in a loop until all return[^.]*not `sleep`/);
-});
 
 test("the first role prompts start with a ROLE line", () => {
   for (const title of ["First Planner prompt", "First Implementer contract", "First REVIEW_REQUEST", "Reviewer → Chief Reviewer"]) {
@@ -84,12 +73,6 @@ test("SKILL.md, Chief Reviewer section: the verdict goes to Implementer by handl
   assert.match(chief, /orca terminal send/);
 });
 
-test("SKILL.md, profile selection: full_access from a tracked or moved config requires confirmation", () => {
-  const choice = SKILL.slice(SKILL.indexOf("### Profile selection"), SKILL.indexOf("## Subagents: policy and limits"));
-  assert.match(choice, /configTracked/);
-  assert.match(choice, /MOVED/);
-  assert.match(choice, /confirm/);
-});
 
 test("SKILL.md, test mode: Coordinator in Codex — prepare outside the working folder requires elevated privileges or --add-dir", () => {
   const testMode = SKILL.slice(SKILL.indexOf("## Test mode"), SKILL.indexOf("## Planning"));
@@ -172,7 +155,7 @@ test("review-protocol §7 and SKILL.md: report labels are English under any LANG
   const reports = PROTOCOL.slice(PROTOCOL.indexOf("## 7. Reports"), PROTOCOL.indexOf("## 8."));
   assert.match(reports, /under any `LANGUAGE`/);
   assert.match(reports, /`Verdict:`/);
-  assert.match(SKILL, /`Verdict: SELF_VERIFIED`/);
+  assert.match(SKILL, /`SELF_VERIFIED`/);
   assert.match(skillSection("Test mode: `test`"), /`Verdict:`/);
 });
 
@@ -186,8 +169,8 @@ test("contracts: a role talks to people in LANGUAGE and passes the line on", () 
 test("review-protocol §7: verdicts are listed by report type (stage, chief/final, self-check)", () => {
   const reports = PROTOCOL.slice(PROTOCOL.indexOf("## 7. Reports"), PROTOCOL.indexOf("## 8."));
   assert.match(reports, /`<stage>-attempt<N>\.md`[^\n]*`APPROVED \| CHANGES_REQUESTED \| PLAN_REVISION_REQUIRED \| BLOCKED`/);
-  assert.match(reports, /`chief-attempt<N>\.md`[^\n]*`final-attempt<N>\.md`[^\n]*`FINAL_APPROVED \| CHANGES_REQUESTED \| PLAN_REVISION_REQUIRED \| BLOCKED`/);
-  assert.match(reports, /`self-check-<stage>-attempt<N>\.md`[^\n]*`SELF_VERIFIED \| CHANGES_REQUESTED`/);
+  assert.match(reports, /`chief-attempt<N>\.md`[^\n]*`final-attempt<N>\.md`[^\n]*`FINAL_APPROVED \| CHANGES_REQUESTED \| PLAN_REVISION_REQUIRED \| BLOCKED \| COMPLETED_UNVERIFIED`/);
+  assert.match(reports, /`self-check-<stage>-attempt<N>\.md`[^\n]*`SELF_VERIFIED \| CHANGES_REQUESTED \| BLOCKED \| COMPLETED_UNVERIFIED`/);
 });
 
 test("the 'request changes' verdict is spelled CHANGES_REQUESTED in every skill file (never CHANGES_REQUIRED)", () => {
@@ -203,7 +186,7 @@ test("the 'request changes' verdict is spelled CHANGES_REQUESTED in every skill 
   walk(root);
   assert.ok(files.length > 10);
   for (const file of files) assert.doesNotMatch(readFileSync(file, "utf8"), /CHANGES_REQUIRED/, path.relative(root, file));
-  assert.match(SKILL, /`Verdict: SELF_VERIFIED` or\s+`Verdict: CHANGES_REQUESTED`/);
+  assert.match(SKILL, /`SELF_VERIFIED`[\s\S]{0,130}`CHANGES_REQUESTED`/);
 });
 
 test("SKILL.md: under auto the RAF file text also sets the language; en only when there is no user text at all", () => {
@@ -277,7 +260,7 @@ test("skill-selection: skills do not extend the permissions to write, run checks
 });
 
 test("helper requests carry a LANGUAGE line (child task template and lane template)", () => {
-  const childTemplate = SUBAGENTS.slice(SUBAGENTS.indexOf("## 5. "));
+  const childTemplate = SUBAGENTS.slice(SUBAGENTS.indexOf("## Child task template"));
   assert.match(childTemplate, /^LANGUAGE: <tag>$/m);
   const laneTemplate = PROTOCOL.slice(PROTOCOL.indexOf("## 8. "));
   assert.match(laneTemplate, /^LANGUAGE: <tag>$/m);
@@ -286,58 +269,23 @@ test("helper requests carry a LANGUAGE line (child task template and lane templa
 test("helper agents (Claude Code, Pi, Codex) answer in the task's LANGUAGE, otherwise in the language of the request", () => {
   const agentsRoot = fileURLToPath(new URL("../agents/", import.meta.url));
   let checked = 0;
-  for (const dir of ["claude", "pi", "codex"]) {
+  for (const dir of ["claude", "pi", "codex", "omp"]) {
     for (const entry of readdirSync(path.join(agentsRoot, dir))) {
-      if (entry === "lens-checker.md") continue; // fixed machine-readable output, no prose
       const flat = readFileSync(path.join(agentsRoot, dir, entry), "utf8").replace(/\s+/g, " ");
       assert.match(flat, /`LANGUAGE:` line[^.]{0,60}otherwise in the language of the request/, `${dir}/${entry}`);
       assert.doesNotMatch(flat, /Russian by default/, `${dir}/${entry}`);
       checked += 1;
     }
   }
-  assert.equal(checked, 20);
+  assert.equal(checked, 28);
 });
 
 // Pi helpers of the pipeline without the user's extensions: an empty `extensions:` keeps pi-lens (and its tsserver) out of the child.
 const PI_ORCA_AGENTS = { worker: true, reviewer: false, scout: false, oracle: false, "evidence-auditor": false }; // key → writes
 const PI_ORCA_THINKING = { worker: "high", reviewer: "high", scout: "low", oracle: "high", "evidence-auditor": "high" }; // the bundled defaults; the role's :level suffix wins
 
-test("Pi orca-* helpers: exactly the five pipeline helpers, without extensions and without pi-lens", () => {
-  const piDir = fileURLToPath(new URL("../agents/pi/", import.meta.url));
-  const orca = readdirSync(piDir).filter((f) => f.startsWith("orca-")).sort();
-  assert.deepEqual(orca, Object.keys(PI_ORCA_AGENTS).map((k) => `orca-${k}.md`).sort());
-  for (const [key, writes] of Object.entries(PI_ORCA_AGENTS)) {
-    const text = readFileSync(path.join(piDir, `orca-${key}.md`), "utf8");
-    const front = text.split("\n---\n")[0];
-    assert.match(front, new RegExp(`^name: orca-${key}$`, "m"), key);
-    assert.match(front, /^extensions:$/m, `${key}: bare empty extensions:`);
-    assert.match(front, /^systemPromptMode: replace$/m, key);
-    assert.match(front, new RegExp(`^thinking: ${PI_ORCA_THINKING[key]}$`, "m"), `${key}: thinking`);
-    assert.match(front, /^inheritProjectContext: true$/m, key);
-    const tools = front.match(/^tools: (.+)$/m)[1].split(/,\s*/);
-    assert.ok(!tools.includes("lens_diagnostics"), key);
-    assert.equal(tools.includes("edit") && tools.includes("write"), writes, `${key}: edit/write`);
-  }
-});
 
-test("subagents.md: Pi runs the five pipeline helpers as orca-* and has a pi-lens budget section", () => {
-  const flat = SUBAGENTS.replace(/\s+/g, " ");
-  assert.match(flat, /In Pi `worker`, `reviewer`, `scout`, `oracle` and `evidence-auditor` are the skill's agents `orca-<key>`/);
-  for (const key of Object.keys(PI_ORCA_AGENTS)) assert.match(SUBAGENTS, new RegExp("`agents/pi/orca-" + key + "\\.md`"), key);
-  const budget = SUBAGENTS.slice(SUBAGENTS.indexOf("## 2a. Pi: pi-lens budget"), SUBAGENTS.indexOf("## 3. "));
-  assert.match(budget, /at most one child at a time/);
-  assert.match(budget.replace(/\s+/g, " "), /use the bundled agent of the same name one at a time \(it takes the pi-lens slot; its task must forbid writing outside the scope\) or work inline; `evidence-auditor` — only inline/);
-  const piSection = SUBAGENTS.slice(SUBAGENTS.indexOf("## 2. Pi"), SUBAGENTS.indexOf("## 2a."));
-  assert.doesNotMatch(piSection, /agent: "(worker|reviewer|scout|oracle|evidence-auditor)"/);
-});
 
-test("SKILL.md: the pi-lens budget, one verifier in Pi; review-protocol: one lens-checker", () => {
-  const flat = SKILL.replace(/\s+/g, " ");
-  assert.match(flat, /\*\*pi-lens budget \(Pi\)\.\*\* pi-lens and its tsserver \([^)]*\) live in the role's session and in \*\*at most one child at a time\*\*/);
-  assert.match(flat, /verifier — up to 3 of them \(in Pi — 1, the pi-lens budget\)/);
-  assert.match(flat, /in Pi only one — the pi-lens budget/);
-  assert.match(PROTOCOL.replace(/\s+/g, " "), /type-lane \(Pi only, if `lens-checker` is available\): \*\*one\*\* `lens-checker`/);
-});
 
 test("review-protocol: dirty-before-start files rule is an imperative; report writers match the table (self mode: Implementer)", () => {
   const flat = PROTOCOL.replace(/\s+/g, " ");
@@ -347,17 +295,6 @@ test("review-protocol: dirty-before-start files rule is an imperative; report wr
   assert.match(flat, /Reviewer and the Chief Reviewer write review reports; in `self` mode the Implementer writes self-check reports/);
 });
 
-test("SKILL.md wording: confirmation is a must, orca-cli fallback, option list, registry check, own terminals, lens_diagnostics fallback", () => {
-  const flat = SKILL.replace(/\s+/g, " ");
-  assert.match(flat, /Full access from someone else's config must be confirmed/);
-  assert.match(flat, /If the skill is missing, do not stop: use `--help` of the discovered executable/);
-  assert.match(flat, /More than 4 valid — the full list as text; the options hold the active one and the next two, and the rest are entered by name through "Other"/);
-  assert.match(flat, /create your own role terminals right away in the exact workspace/);
-  assert.match(flat, /without the agent, run `lens_diagnostics` yourself; without the tool \(Claude Code\), skip it/);
-  assert.doesNotMatch(flat, /registry verification/i);
-  assert.match(flat, /registry check/);
-  assert.doesNotMatch(PROTOCOL, /registry verification/i);
-});
 
 // plan-blitz: the Planner walks the user through the spec and the plan in rounds of questions before each approval.
 /** Asserts that the needles occur in this order, each searched after the previous one. */
@@ -374,7 +311,7 @@ test("the first Planner prompt: plan-blitz is a required Planner skill, with its
   const prompt = section("First Planner prompt");
   assert.ok(prompt.split("\n").includes("REQUIRED PLANNER SKILLS: using-superpowers — <absolute path SKILL.md>; plan-blitz — <absolute path SKILL.md | not installed>."));
   assert.ok(prompt.replace(/\s+/g, " ").includes(
-    "Before each approval (spec, plan, revision) run plan-blitz (Pi: /skill:plan-blitz; Claude Code: Skill plan-blitz; Codex: $plan-blitz; otherwise read it by path); if it is not installed, warn the user in one line and ask for approval in plain text."));
+    "Save each exact document, then run plan-blitz before approval (spec/design, plan, revision) (Pi: /skill:plan-blitz; Claude Code: Skill plan-blitz; Codex: $plan-blitz; otherwise read it by path); if it is not installed, warn the user in one line and ask for approval in plain text."));
 });
 
 test("SKILL.md, Planning: plan-blitz after the self-review before the spec approval, after the cross-review before the plan approval", () => {
@@ -428,7 +365,7 @@ test("contracts: the Planner prompt carries the tests rule, the Implementer cont
 });
 
 test("child tasks carry a Tests line; worker helpers (Claude Code, Pi, Codex) follow it", () => {
-  const childTemplate = SUBAGENTS.slice(SUBAGENTS.indexOf("## 5. "));
+  const childTemplate = SUBAGENTS.slice(SUBAGENTS.indexOf("## Child task template"));
   assert.match(childTemplate, /^Tests: not requested — do not write, change or run them \| <the requested tests>\.$/m);
   for (const file of ["claude/worker.md", "pi/orca-worker.md", "codex/worker.toml"]) {
     const flat = readFileSync(new URL(`../agents/${file}`, import.meta.url), "utf8").replace(/\s+/g, " ");
@@ -447,22 +384,47 @@ test("test mode: TASK.md asks for tests, so the plan says tests: requested", () 
 
 // A full-mode Implementer launched six verifier audits of its stage before REVIEW_REQUEST, and the user asked
 // "isn't the reviewer supposed to check the code?" (2026-10-21): with reviewers the Implementer runs only the plan's checks.
-test("with reviewers the Implementer does not review its own code: invariant, Checks step, contract, helpers, test mode", () => {
-  const flat = SKILL.replace(/\s+/g, " ");
-  assert.match(flat, /\*\*The reviewers check the code\.\*\* With a Reviewer or Chief Reviewer \(`full`, `reviewer`, `chief`\) the Implementer does not review its own code: before REVIEW_REQUEST it runs only the plan's `verificationChecks`/);
-  assert.match(flat, /no `verifier`, review or audit lanes and no reading the diff in search of defects/);
-  assert.match(flat, /This overrides the review steps of `subagent-driven-development` and `requesting-code-review`/);
-  assert.match(flat, /`verifier` — only the self-check of `self` mode, not launched with reviewers/);
-  const integrator = skillSection("Implementer = Integrator").replace(/\s+/g, " ");
-  assert.match(integrator, /run the approved `verificationChecks` yourself, fix what they report/);
-  assert.match(integrator, /with a Reviewer or Chief Reviewer do not launch `verifier`, review or audit lanes/);
-  assert.match(skillSection("Review modes").replace(/\s+/g, " "), /Only in `self` mode: with a Reviewer or Chief Reviewer the Implementer goes from the checks straight to REVIEW_REQUEST/);
-  assert.match(section("First Implementer contract").replace(/\s+/g, " "), /With reviewers do not review your own code: no verifier, review or audit lanes before REVIEW_REQUEST — finding defects is the reviewer's job/);
-  assert.match(SUBAGENTS, /\| Implementer — self-check, `self` mode only \|/);
-  assert.match(SUBAGENTS.replace(/\s+/g, " "), /The Implementer gets `orca_verifier` only in `self` mode/);
-  for (const file of ["claude/verifier.md", "codex/verifier.toml", "pi/verifier.md"]) {
-    const text = readFileSync(new URL(`../agents/${file}`, import.meta.url), "utf8");
-    assert.match(text, /only (when no reviewers are configured|without reviewers) \(the self review mode\)/, file);
+test("with reviewers the Implementer sends work to review without self-auditing", () => {
+  assert.match(skillSection("Invariants"), /Implementer does not review its own code/);
+  assert.match(section("First Implementer contract"), /With reviewers do not review your own code/);
+  assert.match(skillSection("Implementer = Integrator"), /do not launch `verifier`/);
+});
+
+test("review scenarios follow one cumulative owner, delta routing and bounded verdicts", () => {
+  const cases = JSON.parse(readFileSync(new URL("./fixtures/review/cases.json", import.meta.url), "utf8"));
+  const ownerNames = { reviewer: "Reviewer", chief_reviewer: "Chief Reviewer", implementer: "Implementer" };
+  const first = section("First REVIEW_REQUEST");
+  const repeat = section("Repeat REVIEW_REQUEST");
+  const chief = section("Implementer → Chief Reviewer");
+  for (const scenario of cases) {
+    const { mode, diagnosticsOwner, stageLimit, chiefLimit, verdict } = scenario;
+    const policyRow = PROTOCOL.split("\n").find((line) => line.startsWith(`| ${mode} |`));
+    assert.deepEqual(policyRow.split("|").slice(2, -1).map((field) => field.trim()),
+      [ownerNames[diagnosticsOwner], String(stageLimit), chiefLimit ? String(chiefLimit) : "—"]);
+    assert.equal(scenario.cumulativePasses, 1);
+    assert.match(PROTOCOL, /first attempt of the last stage the owner runs one\s+cumulative pass/);
+    if (scenario.stageOne) {
+      assert.deepEqual(scenario.cumulative, [...new Set([...scenario.stageOne, ...scenario.stageTwo])]);
+      const initial = first.replace("<reviewer|chief_reviewer|implementer>", diagnosticsOwner)
+        .replace("<targeted|cumulative>", "cumulative").replace("<1>/<3>", `1/${stageLimit}`)
+        .replace("<added, changed, renamed old→new, deleted; exclude unrelated baseline and reports>", scenario.cumulative.join(", "));
+      assert.match(initial, /DIAGNOSTIC OWNER: reviewer; scope: cumulative; attempt: 1\/3/);
+      assert.match(initial, /CUMULATIVE TASK FILES: src\/client\.mjs.*src\/interface\.mjs.*-src\/retired\.mjs/);
+      assert.match(repeat, /FIX DELTA:.*\nAFFECTED CONSUMERS:.*\nDIAGNOSTICS: <same owner>; scope: <delta plus affected consumers>/);
+      assert.deepEqual([...scenario.reviewerFix, ...scenario.consumers], ["src/interface.mjs", "src/client.mjs"]);
+      assert.deepEqual(scenario.chiefFix, ["src/new.mjs"]);
+      assert.match(chief, /Chief verifies these directly>\.\nDIAGNOSTICS: chief_reviewer; scope: <delta plus affected consumers>/);
+    }
+    if (scenario.attempts) {
+      assert.deepEqual(scenario.attempts, ["initial", "targeted retry", "planned fallback"]);
+      assert.match(PROTOCOL, /one targeted retry, then the planned\s+equivalent fallback/);
+    }
+    if (scenario.confirmedBlockers) {
+      assert.equal(verdict, "BLOCKED");
+      assert.match(PROTOCOL, /confirmed BLOCKER\/MAJOR[^.]*then\s+`BLOCKED`/);
+    } else if (scenario.requiredUnavailable) {
+      assert.equal(verdict, "COMPLETED_UNVERIFIED");
+      assert.match(PROTOCOL, /no confirmed blocking finding,\s+required coverage still unavailable after retry\/fallback yields\s+`COMPLETED_UNVERIFIED`/);
+    }
   }
-  assert.match(EXPECTED, /no `verifier` or audit lanes/);
 });

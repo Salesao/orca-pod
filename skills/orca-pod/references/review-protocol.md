@@ -88,8 +88,7 @@ stage if the Planner split the plan into stages). The Reviewer:
    evidence. Do not compute SHA/digest tuples: the plan version, stage
    and attempt are sufficient identity. The `.orca-pod/` folder (pipeline
    reports) is not part of the batch.
-2. **Lanes.** Split the batch into independent slices and launch them **in
-   parallel** in one turn (mechanics — [subagents.md](subagents.md)):
+2. **Lanes.** Split the batch into independent slices and assign them **in parallel** when the effective role policy permits (mechanics — [subagents.md](subagents.md)):
    - TODO-lane: one per TODO; combine small TODOs of the same area into one lane;
    - integration-lane: the seams between TODOs — shared interfaces,
      initialization order, conflicting assumptions, whatever is not visible
@@ -97,9 +96,6 @@ stage if the Planner split the plan into stages). The Reviewer:
      parallel: each TODO-lane gets its own TODO plus the dependency contract,
      and the integration-lane checks the seam itself — sequential review for the
      sake of the link is not needed;
-   - type-lane (Pi only, if `lens-checker` is available): **one** `lens-checker`
-     with diagnostics over all changed files (the pi-lens budget, subagents.md
-     §2a); in Claude Code and Codex this lane is omitted;
    - for a large batch — an extra lane for a risk zone (data migrations,
      concurrency, security) if the plan singles it out.
    The number of concurrent lanes is at most N, the profile's `max_subagents`
@@ -128,8 +124,8 @@ is strictly:
 2. **Fix regressions.** Save `<stage>-attempt<N>.patch` and
    `<stage>-attempt<N>.delta` = `diff -u attempt<N-1>.patch attempt<N>.patch` (without Git the delta is the
    places from the `FIXED` answers and the list of other changes).
-   Look for new problems **only inside the delta** (and in code the delta really
-   affects through calls).
+   Look for new problems **only inside the delta** (and in consumers affected by changed shared interfaces). Apply planned
+   diagnostics to that scope, even if a consumer itself is unchanged.
 3. **No "moving the goalposts".** A new finding on code outside the delta that
    was already reviewed is allowed only with category `BLOCKER` and only with the
    `missed-earlier` mark and a justification of why it was not found in the
@@ -143,43 +139,56 @@ the same slice is still alive, continue it (`SendMessage` in Claude Code,
 `followup_task`/`send_input` in Codex) — it remembers its own findings; a new lane
 gets an excerpt of the registry and the delta, not the whole patch.
 
-## 5. Round limit
+## 5. Diagnostic scope and round limit
 
-- Regular review: at most **3 attempts** per batch/stage (the first + 2 rounds of
-  fixes). If blocking findings remain after the 3rd → `BLOCKED` to the user:
-  the list of open ids and options (one more round / accept the risk / replan).
-  Continuing after the limit — only by the user's explicit decision in that case
-  and at most one additional round; a "standing permission" does not lift the
-  limit.
-- Chief review: at most **2 attempts** by the Chief Reviewer, then `BLOCKED` to
-  the user on the same terms.
-- Non-blocking findings never extend the cycle.
+The plan names the owner, read-only tool or exact command, required checks,
+scoping support, timeout and fallback. Do not install or update tools, apply
+fixes, format files, build or run unrequested tests during review. Use the
+smallest available scope when a tool only accepts a whole project, and record
+that expansion. Outside Pi use available native analyzers and planned checks.
 
-## 6. Chief review (Chief Reviewer)
+| Mode | Initial cumulative owner | Final-stage attempts | Chief attempts after separate Reviewer |
+| --- | --- | --- | --- |
+| full | Reviewer | 3 | 2 |
+| reviewer | Reviewer | 3 | — |
+| chief | Chief Reviewer | 3 | — |
+| self | Implementer | 3 | — |
 
-The Chief gets the batch only after the Reviewer's `APPROVED`. If the pipeline
-has a single reviewer (the `reviewer`/`chief` modes in SKILL.md), that reviewer
-performs this section itself after `APPROVED` of the last stage: the ids of the
-final findings continue its own registry, the report is `final-attempt<N>.md`.
-The chief review assesses the **code as a whole** and the completeness of the
-history:
+- During implementation and earlier stages use targeted diagnostics for a
+  specific issue. On the first attempt of the last stage the owner runs one
+  cumulative pass. Its scope includes task additions, changes, rename old/new
+  paths, deletions and affected consumers from all stages. Check the current
+  paths and affected edges, record deletions explicitly, and exclude unrelated
+  baseline changes and service reports. Without Git use the explicit path list.
+- On later attempts check the fix delta, affected consumers and open findings.
+  The final diagnostics and last-stage review share the same attempt budget.
+  A timeout or stale result allows one targeted retry, then the planned
+  equivalent fallback. Compare results against current source and the active
+  diagnostics revision or timestamp. Empty or unsupported output is not evidence
+  of a pass. Use the plan's timeout, or 30 seconds for a targeted request and
+  120 seconds for the cumulative request.
+- A confirmed BLOCKER/MAJOR is `CHANGES_REQUESTED` while attempts remain, then
+  `BLOCKED`. With all other work complete and no confirmed blocking finding,
+  required coverage still unavailable after retry/fallback yields
+  `COMPLETED_UNVERIFIED`. State the missing scope and reason in the report and
+  final message. Optional missing evidence is recorded.
 
-1. Read the last Reviewer report (full registry), spec/plan, the Integrator
-   report. Earlier reports — only if you need the history of a specific id.
-2. Launch in parallel: lanes by code area (architecture and consistency with the
-   project; correctness per module; seams), `evidence-auditor` on the key
-   acceptance criteria and, in Pi, one `lens-checker` on the changed files. Lane
-   tasks include the Reviewer's registry so that already-closed items are not
-   duplicated.
-3. Check that every blocking `R<n>` is closed and has not returned, and that the
-   `ACCEPTED_RISK` items really are non-blocking. A `MINOR` can be raised to
-   blocking only with a new proven scenario.
-4. Your own findings are `C<n>` on the same scale. Blocking →
-   `CHANGES_REQUESTED`; the Integrator fixes and returns **directly to the
-   Chief**; attempt 2 is the registry check mode (section 4) over `C<n>`
-   and the delta.
-5. No blocking findings → `FINAL_APPROVED`. Non-blocking ones go to the user in
-   the summary.
+## 6. Final review and late fixes
+
+In `full`, Chief reads the approved documents, cumulative Reviewer diagnostics,
+registry and Integrator evidence. Assess the code and closure of blockers. Use
+selected review/evidence helpers only if allowed. Chief does not run the
+Reviewer’s cumulative pass again. Chief owns the diagnostic delta and affected
+consumers after a `CHIEF_FIX`. Report fresh evidence for the fixed paths and
+any earlier uncovered scope relevant to the delta.
+
+In `reviewer` and `chief`, the sole reviewer combines final verification with the
+last stage under the same attempt counter. In `self`, Implementer owns the
+cumulative pass and applies the same delta rules. A selected Verifier can
+check criteria and listed read-only commands.
+
+Close with `FINAL_APPROVED` or `SELF_VERIFIED` only when required evidence is
+complete. Follow section 5 for unavailable coverage and blockers.
 
 ## 7. Reports
 
@@ -196,7 +205,7 @@ reports.
 | `<stage>-attempt<N>.patch`, `.delta` | Reviewer: the snapshot and the diff between rounds |
 | `chief-attempt<N>.md` | Chief Reviewer (`full` mode) |
 | `final-attempt<N>.md` | the only reviewer — the final check (`reviewer`/`chief` modes) |
-| `self-check-<stage>-attempt<N>.md` | Implementer — self-check through `verifier`, registry `S<n>` (`self` mode) |
+| `self-check-<stage>-attempt<N>.md` | Implementer — self-check, registry `S<n>` (`self` mode) |
 
 Report template (compact, no retelling of code):
 
@@ -213,7 +222,9 @@ Report template (compact, no retelling of code):
 | id | category | TODO | path | status | summary |
 
 ## Checks
-<what the lanes/reviewer ran; what was not run and why>
+| Owner | Tool/version | Scope | Checked | Unsupported | Freshness | Duration | Outcome/reason |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+<For each planned check: attempt, exact command, required/optional, retry and fallback if used. Mark unchecked coverage explicitly.>
 ```
 
 The template above is a stage report. The value of `Verdict:` is exactly one
@@ -221,8 +232,8 @@ token, with no explanations (those go in the prose below); the tokens depend on
 the report type:
 
 - `<stage>-attempt<N>.md` — `APPROVED | CHANGES_REQUESTED | PLAN_REVISION_REQUIRED | BLOCKED`;
-- `chief-attempt<N>.md`, `final-attempt<N>.md` — `FINAL_APPROVED | CHANGES_REQUESTED | PLAN_REVISION_REQUIRED | BLOCKED`;
-- `self-check-<stage>-attempt<N>.md` — `SELF_VERIFIED | CHANGES_REQUESTED` (id `S<n>` instead of `R<n>`).
+- `chief-attempt<N>.md`, `final-attempt<N>.md` — `FINAL_APPROVED | CHANGES_REQUESTED | PLAN_REVISION_REQUIRED | BLOCKED | COMPLETED_UNVERIFIED`;
+- `self-check-<stage>-attempt<N>.md` — `SELF_VERIFIED | CHANGES_REQUESTED | BLOCKED | COMPLETED_UNVERIFIED` (id `S<n>` instead of `R<n>`).
 
 The rest of the chief/final and self-check reports uses the same template.
 

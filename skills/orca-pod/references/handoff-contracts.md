@@ -11,7 +11,10 @@ sends the message itself, without subagents. The first prompt of every role
 starts with a `ROLE:` line — a guard against the Coordinator steps (SKILL.md,
 "Role, not Coordinator"). No contract is a shell command. An accepted send is
 not repeated; after a second error — stop and give the full payload to the user.
-Do not add waiting stages, tracking files or SHA/digest tuples.
+Pass the resolved role policy in the first prompt, including the effective helper
+set, enforcement and access. Each subsequent work, fix or revision assignment
+carries a short policy line: `DELEGATION: selected <names> | disabled — work inline;
+no native, external CLI or recursive delegation`. It also applies to other skills.
 
 The `LANGUAGE: <tag>` line sets the language the role uses to talk to people
 (SKILL.md, section "Language: LANGUAGE"). The Coordinator determines it and
@@ -37,14 +40,13 @@ REQUIRED PLANNER SKILLS: using-superpowers — <absolute path SKILL.md>; plan-bl
 ADDITIONAL SKILLS: <names/sources per role; for an empty set, say so>.
 
 You are Planner. First using-superpowers (Pi: /skill:using-superpowers; Claude Code:
-Skill using-superpowers; Codex: $superpowers:using-superpowers; otherwise read it by path). Research the code with parallel
-scouts. The spec and plan go in the project's docs/superpowers/; in the plan every TODO has
+Skill using-superpowers; Codex: $superpowers:using-superpowers; otherwise read it by path). Research inline or with selected scouts when allowed. The spec and plan go in the project's docs/superpowers/; in the plan every TODO has
 dependsOn and writeScope, waves and stages follow the skill. Tests only on request (the skill's Invariants):
 without the user's request the plan has no tests, TDD steps or test commands; write its tests: line. Talk to people in LANGUAGE.
-Before each approval (spec, plan, revision) run plan-blitz (Pi: /skill:plan-blitz; Claude Code: Skill plan-blitz;
+Compare plan choices with approved spec/design. Save each exact document, then run plan-blitz before approval (spec/design, plan, revision) (Pi: /skill:plan-blitz; Claude Code: Skill plan-blitz;
 Codex: $plan-blitz; otherwise read it by path); if it is not installed, warn the user in one line and ask for approval in plain text.
 After the approvals, send one contract to Implementer with the same LANGUAGE line. You do not write code.
-Children: launch them, then wait for completion — Pi and Claude Code: return control, the notification wakes you; Codex: wait_agent; never sleep, timers or status polling.
+When delegation is enabled, use the selected helpers and wait for native completion or foreground results. Codex uses wait_agent. No timers or status polling.
 ```
 
 ## First Implementer contract (from Planner, after plan approval)
@@ -63,13 +65,13 @@ SETTINGS: <resolved settings of Implementer/Reviewer/Chief Reviewer and their ch
 REVIEW REPORTS: <absolute path>
 ADDITIONAL SKILLS: Implementer=<set|empty>; Reviewer=<set|empty>; Chief=<set|empty>.
 
-You are Implementer (integrator). Work by the skill: waves of independent TODOs go to
-parallel workers, then integration, the plan's verificationChecks, then ONE review request for the whole
-stage to the mode's reviewer; in `self` mode — self-check through the `verifier` subagent
-(pi-lens + static analysis + criteria check; without subagents — inline) and SELF_VERIFIED.
+You are Implementer. Run the waves inline or use selected workers when permitted.
+Integrate, run the approved checks at the planned points, and send one review request
+per stage. In self mode Implementer owns planned diagnostics and the verdict.
+A selected verifier can check criteria or approved read-only commands.
 With reviewers do not review your own code: no verifier, review or audit lanes before REVIEW_REQUEST — finding defects is the reviewer's job; this overrides the review steps of other skills. Write, change or run tests
 only as TESTS allows, and pass it to workers as a Tests: line; no TDD — this overrides the test-driven-development skill. Talk to people in LANGUAGE; put the same LANGUAGE in the first REVIEW_REQUEST. Do not re-read the YAML if it changes during the run.
-Children: launch them, then wait for completion — Pi and Claude Code: return control, the notification wakes you; Codex: wait_agent; never sleep, timers or status polling.
+When delegation is enabled, use the selected helpers and wait for native completion or foreground results. Codex uses wait_agent. No timers or status polling.
 ```
 
 ## First REVIEW_REQUEST to the stage reviewer (from Implementer)
@@ -96,10 +98,16 @@ TODO → files:
   integration → <paths>
 CHECKS: <command — result; skipped — reason>
 DEVIATIONS FROM PLAN: <none | list>
+FINAL STAGE: <yes|no>
+DIAGNOSTIC OWNER: <reviewer|chief_reviewer|implementer>; scope: <targeted|cumulative>; attempt: <1>/<3>
+CUMULATIVE TASK FILES: <added, changed, renamed old→new, deleted; exclude unrelated baseline and reports>
+AFFECTED CONSUMERS: <paths and changed interfaces>
+PLANNED CHECKS: <exact read-only commands/tools, required coverage, deadlines and fallbacks>
+DELEGATION: <effective selection or disabled — work inline>
 
 You are <Reviewer|Chief Reviewer>. Batch review by the protocol: parallel lanes, registry R<n>,
 only BLOCKER/MAJOR block. Report prose and messages to people — in LANGUAGE; report template labels (`Verdict:`, registry) — in English. Verdict — first into the report, then send it to Implementer by the handle from TERMINALS with the orca terminal send command (section "Delivery between terminals"): nobody reads text in your terminal.
-Children: launch them, then wait for completion — Pi and Claude Code: return control, the notification wakes you; Codex: wait_agent; never sleep, timers or status polling.
+When delegation is enabled, use the selected helpers and wait for native completion or foreground results. Codex uses wait_agent. No timers or status polling.
 ```
 
 ## Repeat REVIEW_REQUEST (from Implementer)
@@ -109,7 +117,11 @@ REVIEW_REQUEST [plan=<version>, stage=<s>, attempt=<N>] fixes:
 R1 — FIXED: <path:line — gist>
 R3 — DISPUTED: <argument with evidence>
 R6 (non-blocking) — FIXED | SKIPPED
+FIX DELTA: <added, changed, renamed old→new, deleted>
+AFFECTED CONSUMERS: <paths and changed interfaces>
+DIAGNOSTICS: <same owner>; scope: <delta plus affected consumers>; attempt: <N>/<3>
 Other changes: <none | files and reason>. Checks: <re-run/no>.
+DELEGATION: <effective selection or disabled — work inline>.
 ```
 
 ## Reviewer → Implementer
@@ -146,7 +158,7 @@ PLAN_REVISION_REQUIRED [plan=<version>, stage=<s>]. Reason: <...>. Affected: <TO
 ## Planner → Implementer (after plan revision)
 
 ```text
-Plan v<N>: <path>. Affected and implemented/reviewed again: <TODO>. The registry for the rest is kept.
+Plan v<N>: <path>. Affected and implemented/reviewed again: <TODO>. Keep the registry for other items. DELEGATION: <effective selection or disabled — work inline>.
 ```
 
 ## Reviewer → Chief Reviewer (chief review request)
@@ -157,12 +169,15 @@ ROLE: Chief Reviewer — not Coordinator: the terminals and config are ready; do
 Last report (full registry): <path>. Review reports: <dir>.
 Spec: <path>; Plan: <path>. Implementer report and checks: <path/brief>.
 Baseline: HEAD=<sha>; patch: <path of the last snapshot>.
+CUMULATIVE TASK FILES AND CONSUMERS: <paths, including renames and deletions>
+DIAGNOSTIC EVIDENCE: <Reviewer report with checked/unsupported, freshness and outcome; do not repeat the cumulative pass>.
+CHIEF ATTEMPTS: <1>/2. DELEGATION: <effective selection or disabled — work inline>.
 SKILL: <abs SKILL.md — the "Chief Reviewer" section>; PROTOCOL: <abs review-protocol.md>, §6. SETTINGS: <Chief and its children>.
 PROFILE: <name>; CONCURRENT SUBAGENTS: up to <N> per role (max_subagents; no launch budget).
 LANGUAGE: <tag>
 Implementer handle=<...>; Planner handle=<...>.
 Report prose and messages to people — in LANGUAGE; report template labels (`Verdict:`, registry) — in English.
-Children: launch them, then wait for completion — Pi and Claude Code: return control, the notification wakes you; Codex: wait_agent; never sleep, timers or status polling.
+When delegation is enabled, use the selected helpers and wait for native completion or foreground results. Codex uses wait_agent. No timers or status polling.
 Verdict — first into chief-attempt<N>.md, then send it to Implementer by handle with the orca terminal send command (section "Delivery between terminals"): nobody reads text in your terminal.
 ```
 
@@ -191,8 +206,20 @@ PLAN_REVISION_REQUIRED — <reason>; affected: <TODO>.
 CHIEF_FIX [plan=<version>, attempt=<N>]:
 C1 — FIXED: <path:line — gist>
 C2 — DISPUTED: <argument>
+FIX DELTA AND AFFECTED CONSUMERS: <paths and changed interfaces; Chief verifies these directly>.
+DIAGNOSTICS: chief_reviewer; scope: <delta plus affected consumers>; attempt: <N>/<2 in full, 3 in chief>.
 Other changes: <none | list>. Checks: <re-run/no>.
+DELEGATION: <effective selection or disabled — work inline>.
 ```
+
+Terminal incomplete-verification verdict (reviewer or Implementer in self):
+
+```text
+COMPLETED_UNVERIFIED — <required coverage unavailable, retry/fallback and reason>. Report: <path>.
+```
+
+Use this only when all other obligations are met and no confirmed blocking finding
+remains. Chief sends the result to Implementer, who includes it in the user summary.
 
 Repeating an accepted request does not create a new attempt. Helper usage
 (launched, maximum concurrent) goes into the role's final report, not into

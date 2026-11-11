@@ -116,9 +116,9 @@ test("approval window: Approve, Read it in full first, Back to question", () => 
   inOrder(approval, ["Approve", "Read it in full first", "Back to question"]);
 });
 
-test("tools: AskUserQuestion, request_user_input with default_mode_request_user_input, orca_pod_ask, numbered text", () => {
+test("tools: native and legacy question tools with numbered text fallback", () => {
   const tools = section("tool");
-  for (const needle of ["AskUserQuestion", "request_user_input", "default_mode_request_user_input", "orca_pod_ask"]) {
+  for (const needle of ["AskUserQuestion", "request_user_input", "pi_task", "orca_pod_ask"]) {
     assert.ok(tools.includes(needle), needle);
   }
   assert.match(tools, /numbered text/i);
@@ -130,7 +130,7 @@ test("the card lives in the window: question text in Claude Code and Codex, cont
   const codex = SKILL.split("\n").find((line) => line.startsWith("| Codex"));
   const claude = SKILL.split("\n").find((line) => line.startsWith("| Claude Code"));
   assert.match(claude, /card[^|]*in the `question` text/i);
-  assert.match(codex, /card[^|]*in the `question` text/i);
+  assert.match(codex, /card and question[^|]*in `question`/i);
   assert.match(codex, /600 characters/);
   assert.doesNotMatch(codex, /in chat right before the call/i);
   assert.match(tools, /`context`/);
@@ -211,12 +211,15 @@ test("Codex: one question per call, so its card stays right above the window", (
 });
 
 // Second live run (2026-10-18): what each agent's window still got wrong.
-// Run 5: the async window shows labels only and its question vanishes when the turn ends; without the feature, text.
-test("Codex: request_user_input only, never the async one; without the feature, numbered text", () => {
+// User decision 2026-11-11: async first; preserve explanations and wait instead of ending the turn.
+test("Codex: Plan and Default use mode-aware ordering and wait for a real answer", () => {
   const tools = section("tool");
-  assert.match(tools, /not `request_user_input_async`/);
-  assert.match(tools, /without the feature[^.]*numbered text/i);
-  assert.doesNotMatch(tools, /consequence of each option[^.]*into the card/i);
+  assert.match(tools, /Plan mode prefer `request_user_input`\. Outside Plan prefer\s+`request_user_input_async`/i);
+  assert.match(tools, /do not infer[^.]*from Default mode/i);
+  assert.match(tools, /do not claim a tool failed without calling it/i);
+  assert.match(tools, /option string contains[^.]*gain and cost/i);
+  assert.match(tools, /do not send a final response while the question is pending/i);
+  assert.doesNotMatch(tools, /not `request_user_input_async`/);
 });
 
 test("\"Explain simpler\" is added by the agent in every tool; no tool adds it", () => {
@@ -274,7 +277,7 @@ test("the list of own calls may group related calls, each group with its cost", 
 });
 
 test("a plan whose steps are all marked done: say so and ask whether to run the blitz anyway", () => {
-  assert.match(flat(SKILL), /all marked done[^.]*ask whether to run the blitz anyway/i);
+  assert.match(flat(SKILL), /all plan steps are marked done, ask whether to continue/i);
 });
 
 // User feedback after the third run: no second "Explain simpler" after an explanation; explain on an example;
@@ -347,10 +350,12 @@ test("a window closed without an answer: ask in plain text whether to continue o
   assert.match(rounds, /continue the blitz or approve it as it stands/i);
 });
 
-test("an empty answer is neither a cancel nor a decision; after asking, end the turn; never decide a fork yourself", () => {
+test("an empty synchronous answer is not a decision; an asynchronous question remains pending", () => {
   const rounds = section("round");
   assert.match(rounds, /empty answer[^.]*neither a cancel nor a decision/i);
   assert.match(rounds, /end the turn until the answer comes/i);
+  assert.match(rounds, /asynchronous call returning immediately is not an empty answer/i);
+  assert.match(rounds, /keep the turn active and wait for the user's reply/i);
   assert.match(rounds, /never decide a fork yourself/i);
 });
 
@@ -419,10 +424,10 @@ test("after a cut-off window, a message that clearly says to continue opens the 
   assert.match(section("round"), /clearly says to continue opens the windows at once/i);
 });
 
-test("Codex: an empty answer is never a decision even if its own instructions say so; warn about the timer before the window", () => {
+test("Codex warns about an observed synchronous timeout and treats empty answers as undecided", () => {
   const tools = section("tool");
-  assert.match(tools, /even if the Codex instructions say to use best judgment/i);
-  assert.match(tools, /closes by itself in about two minutes unless a key is pressed/i);
+  assert.match(tools, /An empty answer never decides the question/);
+  assert.match(tools, /If a synchronous window has an observed timeout, mention it before the question/);
 });
 
 test("approval: print the full list again before every approval window; never \"see above\"", () => {
@@ -432,11 +437,11 @@ test("approval: print the full list again before every approval window; never \"
 });
 
 test("the blitz goes by the document only", () => {
-  assert.match(flat(SKILL), /goes by the document only/i);
+  assert.match(flat(SKILL), /use these documents as evidence; the blitz does not inspect the application/i);
 });
 
 // Sixth run (operator-driven) and four Haiku audits (2026-10-18): .handoff/plan-blitz-report-6/SYNTHESIS.md.
-// User decisions: everything a user sees is a question, the look included; Codex approves in numbered text.
+// User decisions: everything a user sees is a question, the look included.
 test("cheap: nothing the user sees changes; a change in behavior or look is a question", () => {
   const ask = section("What to ask");
   assert.match(ask, /nothing the user sees changes/i);
@@ -447,11 +452,11 @@ test("approval: the window itself keeps the outcome and the most expensive own c
   assert.match(section("approval"), /window itself always keeps the outcome and the most expensive own call[^.]*never only a pointer to the chat/i);
 });
 
-test("Codex approves in numbered text, not in a window", () => {
-  assert.match(section("approval"), /In Codex the approval is numbered text, not a window/i);
+test("Codex approval uses the available window while respecting host restrictions", () => {
+  assert.match(section("approval"), /approval follows the same mode-aware question-tool selection/i);
+  assert.match(section("approval"), /prohibited for approvals, use another permitted question tool/i);
   const codex = SKILL.split("\n").find((line) => line.startsWith("| Codex"));
-  assert.match(codex, /approval[^|]*numbered text/i);
-  assert.match(codex, /say so in one line before every window/i);
+  assert.match(codex, /permitted fallback/);
 });
 
 test("the re-ask keeps the same card plus one added sentence of the example; nothing else is rewritten", () => {
@@ -517,4 +522,11 @@ test("the tab header: 12 characters, the number and the space included", () => {
 test("Claude Code: the card in the question text is at most 600 characters too", () => {
   const claude = SKILL.split("\n").find((line) => line.startsWith("| Claude Code"));
   assert.match(claude, /600 characters/);
+});
+
+test("upstream decisions distinguish matches, transcription errors, conflicts and new choices", () => {
+  const decisionSection = section("Compare with approved decisions");
+  inOrder(decisionSection, ["A match", "Correct a transcription error", "Ask about an actual conflict", "Ask about a new decision", "one explicit", "combined approval"]);
+  assert.match(decisionSection, /manual renewal/);
+  assert.match(decisionSection, /shows? both outcomes|show both outcomes/);
 });

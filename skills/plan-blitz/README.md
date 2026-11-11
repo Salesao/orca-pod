@@ -34,11 +34,8 @@ again for a plan revision, where it covers only what changed.
 | Codex | `$plan-blitz <path>` |
 | Pi | `/skill:plan-blitz <path>` |
 
-The questions appear in the agent's own question window: `AskUserQuestion` in Claude Code, `request_user_input` in
-Codex (for a manual run start Codex with `codex --enable default_mode_request_user_input`), `orca_pod_ask` in Pi (the
-extension that orca-pod-setup links; run `/reload` in Pi after setup). In Codex each window holds one question and
-closes by itself after about two minutes unless you press a key; the blitz then asks again. If the agent has no such
-window, the blitz prints the questions as a numbered list and you answer by number or in words. In Codex the approval
-is always a numbered list, not a window.
+Codex prefers `request_user_input` in Plan and `request_user_input_async` outside Plan. The agent waits for your actual reply. Pi uses the standalone package's `pi_task`, then an installed `orca_pod_ask`. Claude Code and Qoder can use `AskUserQuestion`, and OMP can use `ask`. When no permitted question window is available, use numbered text.
+
+Compare the plan with approved upstream documents. An answer that revises an approved outcome is saved in the upstream document and plan and approved once for both versions.
 
 The rules are in [SKILL.md](SKILL.md). For installation, see the [repository README](../../README.md).

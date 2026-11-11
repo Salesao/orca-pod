@@ -86,7 +86,7 @@ function prepare({ dir, config }) {
 // Only the English labels of the report template (review-protocol §7): the report prose is in the user's LANGUAGE.
 
 // Verdict tokens: stage (APPROVED …), chief/final (FINAL_APPROVED …), self-check (SELF_VERIFIED …).
-const VERDICT_TOKENS = ['APPROVED', 'CHANGES_REQUESTED', 'PLAN_REVISION_REQUIRED', 'BLOCKED', 'FINAL_APPROVED', 'SELF_VERIFIED'];
+const VERDICT_TOKENS = ['APPROVED', 'CHANGES_REQUESTED', 'PLAN_REVISION_REQUIRED', 'BLOCKED', 'FINAL_APPROVED', 'SELF_VERIFIED', 'COMPLETED_UNVERIFIED'];
 // Label line: optional `#…`, `-`/`*`/`+`, `1.` and emphasis around the word; `Verdict:` is case-insensitive.
 const VERDICT_LABEL = /^[ \t]*(?:(?:#{1,6}|[-*+]|\d+[.)])[ \t]+)*[*_`]*Verdict[*_`]*[ \t]*:[ \t]*[*_`]*[ \t]*(.*)$/im;
 

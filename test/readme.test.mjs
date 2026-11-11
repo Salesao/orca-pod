@@ -255,7 +255,7 @@ test("the README carries the requirement facts (Orca, Node, git, Claude Code, Co
     "Node.js >= 18": "Node.js 18",
     git: "git",
     "Pi subagent package": "npm:pi-subagents",
-    "Pi subagent package version": "0.78.0",
+    "Pi subagent package version": "0.81.0",
     "the conflicting Pi package": "pi-interactive-subagents",
     "the Codex rule": 'prefix_rule(pattern=["orca"], decision="allow")',
     "the Codex rules file": "~/.codex/rules/default.rules",
@@ -265,7 +265,7 @@ test("the README carries the requirement facts (Orca, Node, git, Claude Code, Co
   };
   const missing = Object.entries(facts).filter(([, needle]) => !text.includes(needle)).map(([name]) => name);
   assert.deepEqual(missing, []);
-  assert.match(text, /pi-subagents[\s\S]{0,400}pi-interactive-subagents[\s\S]{0,200}conflict/i, "it should say the two Pi packages conflict");
+  assert.match(text, /inherit registered model providers without loading ambient extensions/);
   assert.match(text, /do(es)? not resume/i, "it should say an interrupted run is not resumed");
   assert.match(text, /new (run|invocation)/i, "it should say a new run is a new invocation");
   assert.match(text, /full_access/, "the Codex rule is not needed with full_access");
@@ -273,7 +273,7 @@ test("the README carries the requirement facts (Orca, Node, git, Claude Code, Co
 
 test("the README names the plan-blitz invocation forms and the question tool of each agent", () => {
   const text = read(ROOT_README);
-  for (const needle of ["/plan-blitz ", "$plan-blitz ", "/skill:plan-blitz ", "AskUserQuestion", "request_user_input", "codex --enable default_mode_request_user_input", "orca_pod_ask"]) {
+  for (const needle of ["/plan-blitz ", "$plan-blitz ", "/skill:plan-blitz ", "AskUserQuestion", "request_user_input_async", "request_user_input", "orca_pod_ask"]) {
     assert.ok(text.includes(needle), `README.md should mention ${needle.trim()}`);
   }
 });
@@ -435,15 +435,9 @@ test("the three skills have the files `npx skills` needs: SKILL.md with name and
   }
 });
 
-test("README: Pi helpers orca-* and the tsserver troubleshooting entry", () => {
-  const text = read(ROOT_README).replace(/\s+/g, " ");
-  assert.match(text, /orca-worker/);
-  assert.match(text, /\*\*Many `tsserver` processes in Pi\.\*\*/);
-});
 
-test("README: Pi helpers need a model that does not come from a provider extension", () => {
-  assert.match(read(ROOT_README).replace(/\s+/g, " "), /a model from a provider extension \(for example pi-claude-bridge\)/);
-});
+
+
 
 // ── the design: hero, diagram, banners, language switch, assets ──────────────────────────────────────────────
 

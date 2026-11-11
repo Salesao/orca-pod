@@ -1,0 +1,41 @@
+[
+  {
+    "mode": "full",
+    "stageOne": ["src/client.mjs"],
+    "stageTwo": ["src/interface.mjs", "src/old.mjs -> src/new.mjs", "-src/retired.mjs"],
+    "cumulative": ["src/client.mjs", "src/interface.mjs", "src/old.mjs -> src/new.mjs", "-src/retired.mjs"],
+    "reviewerFix": ["src/interface.mjs"],
+    "consumers": ["src/client.mjs"],
+    "chiefFix": ["src/new.mjs"],
+    "diagnosticsOwner": "reviewer",
+    "stageLimit": 3,
+    "chiefLimit": 2,
+    "cumulativePasses": 1,
+    "verdict": "FINAL_APPROVED"
+  },
+  {
+    "mode": "reviewer",
+    "diagnosticsOwner": "reviewer",
+    "stageLimit": 3,
+    "cumulativePasses": 1,
+    "requiredUnavailable": ["typecheck"],
+    "attempts": ["initial", "targeted retry", "planned fallback"],
+    "verdict": "COMPLETED_UNVERIFIED"
+  },
+  {
+    "mode": "chief",
+    "diagnosticsOwner": "chief_reviewer",
+    "stageLimit": 3,
+    "cumulativePasses": 1,
+    "requiredUnavailable": ["typecheck"],
+    "confirmedBlockers": ["C1"],
+    "verdict": "BLOCKED"
+  },
+  {
+    "mode": "self",
+    "diagnosticsOwner": "implementer",
+    "stageLimit": 3,
+    "cumulativePasses": 1,
+    "verdict": "SELF_VERIFIED"
+  }
+]

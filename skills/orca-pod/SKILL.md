@@ -1,6 +1,6 @@
 ---
 name: orca-pod
-description: Use for plan approval and a direct Orca handoff with separate Planner, Implementer (an integrator with parallel Workers) terminals and optional Reviewer (batch review by parallel lanes) and Chief Reviewer (chief final review); without reviewers the Implementer checks itself with static analysis. Works in Pi, Claude Code and Codex. Takes a RAF path or a verbatim task description; the `test` argument runs the whole flow in a sandbox (`test check` verifies the result, `test reset` resets the sandbox).
+description: Use for plan approval and a direct Orca handoff with separate Planner, Implementer (an integrator with parallel Workers) terminals and optional Reviewer (batch review by parallel lanes) and Chief Reviewer (chief final review); without reviewers the Implementer checks itself with static analysis. Works in Pi, Claude Code, Codex, Qoder and OMP. Takes a RAF path or a verbatim task description; the `test` argument runs the whole flow in a sandbox (`test check` verifies the result, `test reset` resets the sandbox).
 ---
 
 # Direct Orca handoff: plan, parallel implementation and batch review
@@ -9,7 +9,7 @@ The Coordinator is the calling context: a quick check of `orca-pod.yaml`, one
 question about the profile (if there are several) and additional skills, the role
 terminals, the first assignment to Planner — and exit. Planner and Implementer are
 mandatory; Reviewer and Chief Reviewer are optional roles (see "Review modes").
-Each role is a separate Orca terminal and can run in Pi, Claude Code or Codex
+Each role is a separate Orca terminal and can run in Pi, Claude Code, Codex, Qoder or OMP
 according to `orca-pod.yaml`.
 
 **Role, not Coordinator.** If a role launcher started you or the first prompt
@@ -32,7 +32,7 @@ Implementer  integrator: wave → parallel Workers → integration → … → t
 Reviewer     parallel review-lanes → registry R<n> → CHANGES_REQUESTED for blocking
              items only ↔ Implementer (≤ 3 attempts) → APPROVED → Chief Reviewer
 Chief        all code + Reviewer reports → C<n> ↔ Implementer (≤ 2 attempts) → FINAL_APPROVED
-no reviewers  Implementer → verifier subagent: pi-lens + static analysis + criteria → fixes (≤ 3) → SELF_VERIFIED
+no reviewers  Implementer → planned diagnostics + criteria → fixes (≤ 3) → SELF_VERIFIED or COMPLETED_UNVERIFIED
 ```
 
 Provider CLI syntax is in [launch-provider.mjs](scripts/launch-provider.mjs).
@@ -94,8 +94,7 @@ the new Orca API or an alternative orchestrator are not used.
   `tests: requested — <the user's words>`; the roles and their children follow that line.
 - The next stage opens only after the reviewer's `APPROVED` for the current one (in
   `self` mode — after a clean self-check); `COMPLETED` — only after the mode's final
-  verdict: the reviewer's `FINAL_APPROVED` or the Implementer's `SELF_VERIFIED`
-  without reviewers. Idle and the user's "done" do not replace it.
+  verdict: `FINAL_APPROVED`, `SELF_VERIFIED`, or `COMPLETED_UNVERIFIED`. Idle and the user's "done" do not replace it.
 - Before review the Integrator waits for all children and stops side effects and
   writing. While the review runs, writing is forbidden; changing code during review
   invalidates the verdict.
@@ -202,26 +201,28 @@ tag, for example `en`, `ru`, `pt-BR`; section "Language: LANGUAGE"), profiles. A
 profile name is letters, digits, `.`, `_`, `-`, no spaces, up to 64 characters. A
 profile: roles with required planner, implementer and optional reviewer,
 chief_reviewer; optional default_provider, max_subagents (an integer 1–100, 6 if
-absent) and full_access (an unquoted boolean, false if absent; see below). There can
-be several profiles; a run uses one — the one chosen at start ("Profile selection").
+absent) and full_access (a boolean for direct launches; see below). There can
+be one to three profiles; a run uses one — the one chosen at start ("Profile selection").
 A role: provider, model, thinking (non-empty strings), use_subagents, subagents.
-`subagents` is a non-empty mapping of exact helper names (lower-case, digits, hyphen)
+`subagents` is a mapping of one to three selected helper names (lower-case, digits, hyphen)
 to model/thinking pairs; `inherit` takes the value of **its own** parent role; a
-missing entry keeps the native defaults. Provider values: pi, codex, claude-code
-(alias claude), omp. For a claude-code role the launcher additionally requires
+missing block selects the role defaults. An explicit selection replaces them. Provider values: pi, codex, claude-code
+(alias claude), qoder (alias qodercli), omp. For a claude-code role the launcher additionally requires
 thinking from `low|medium|high|xhigh|max`, and the model of its helpers to be
 `inherit` or an alias `opus|sonnet|haiku|fable` (the Agent tool does not accept a full id).
 
-`full_access: true` is yolo: the launcher starts Codex roles with
-`--dangerously-bypass-approvals-and-sandbox` and Claude Code roles with
-`--dangerously-skip-permissions`: no confirmations and no sandbox, with access to the
-whole machine. Pi and OMP are unchanged. Only the user enables it (the "Full access"
-toggle in the orca-pod-setup form); the Coordinator and the roles do not enable it and
-do not write it into YAML. Codex shows the folder trust dialog even with it.
+Coordinator always requests session-local YOLO with `--coordinator` for every role.
+Codex uses `--dangerously-bypass-approvals-and-sandbox`, Claude Code and Qoder use
+`--dangerously-skip-permissions`, and OMP uses `--approval-mode=yolo` when detected.
+Pi uses the host's existing permissions; report `host-default`. The launcher
+reports other unsupported equivalents and the actual effective access of each role.
+YOLO and helper policy are independent. `full_access` controls direct launches
+outside the Coordinator. Folder trust can still interrupt startup.
+
 For a codex role the launcher, at `--resolve` and at launch, checks the model and thinking
 of the role and of its helpers (after `inherit`) against the Codex catalog
 (`codex debug models`): the model must be among those visible in Codex, thinking
-among the levels of this model; there is no `lens-checker` in Codex.
+among the levels of this model.
 If the catalog is unavailable — a line in `warnings`, not an error.
 
 `node <skill-dir>/scripts/launch-provider.mjs --profiles` validates every profile
@@ -242,6 +243,8 @@ Reason: <exact field and error>
 Fix: <the required migration through orca-pod-setup>
 ```
 
+Before profile selection, resolve the active config and run `node <skill-dir>/scripts/profile-upgrade.mjs --file <absolute config path>` when it exists, after legacy path migration. On upgrade show the retained and archived names and full backup path. On failure stop preflight and show the error. The read-only launcher never upgrades settings.
+
 ### Profile selection
 
 `launch-provider.mjs --profiles` returns for each profile `name`, `isActive`,
@@ -256,24 +259,17 @@ thinking), the review mode, the subagent limit and "full access (yolo)" when
   ("Coordinator skill selection"). Claude Code: one AskUserQuestion call with two
   questions; a profile option — label = name (the active one first, marked
   "(default)"), description = `summary` verbatim. Pi, Codex and other agents — as
-  text, one line `<name> — <summary>` per profile. More than 4 valid — the full list
-  as text; the options hold the active one and the next two, and the rest are
-  entered by name through "Other".
+  text, one line `<name> — <summary>` per profile. Offer the valid profiles as individual choices.
 - Do not offer invalid ones; list them in one line `<name>: <error>`.
 - An answer through "Other" must exactly match the name of a valid profile from
   `--profiles`; otherwise ask again and do not substitute it into commands.
 
-Full access from someone else's config must be confirmed. If the selected profile has
-`fullAccess: true`, and `--profiles` returned `configTracked: true` (the config file is
-tracked by git — it came with the repository) or the migration in this run produced at least one `MOVED` line,
-add a confirmation to the same question: "The profile starts Codex and Claude Code
-roles without confirmations and sandbox — continue?". "No" — `PIPELINE CONFIG REJECTED`
-with the reason "full_access not confirmed" and a hint to turn off full access in
-orca-pod-setup. Your own config (in `.gitignore`, not migrated just now) needs no
-confirmation.
+Resolve each selected role with `launch-provider.mjs --role <role> --profile <selected> --resolve --coordinator` before creating terminals. Include its effective access, enforcement, helper selection and warnings in the launch summary. The
+Coordinator's access is selected by `--coordinator`; project YAML cannot select a
+different permission mode for these launches.
 
 Order: `--profiles` → one question (the profile, if there are several, and skills) →
-`--roles --profile <selected>` and `PIPELINE CONFIG RESOLVED` → terminals.
+`--roles --coordinator --profile <selected>` and `PIPELINE CONFIG RESOLVED` → terminals.
 The choice is not written to YAML: active_profile stays the default profile.
 After that, everywhere — `--profile <selected>`: `--roles`, launching the role
 terminals, SETTINGS in the prompts.
@@ -291,63 +287,36 @@ Reviewer: <provider> / <model> / <thinking>; use_subagents=<boolean> | not confi
 Chief Reviewer: <provider> / <model> / <thinking>; use_subagents=<boolean> | not configured
 Review mode: <full | reviewer | chief | self — short explanation>
 Concurrent subagents: up to <maxSubagents> per role (max_subagents; no launch budget)
-Full access: yes — Codex and Claude Code without confirmations and sandbox (full_access) | no
+Effective access: <role = yolo | host-default | unsupported, from --resolve --coordinator>
 Child settings by role: <full JSON; null keeps native defaults>
 Review reports: <absolute path = <project-root>/.orca-pod/reports>
 ```
 
 ## Subagents: policy and limits
 
-Helpers are invoked by the roles themselves; the Coordinator does not create children
-and does not investigate capabilities. The mechanics of Pi (pi-subagents), Claude Code
-(`Agent`) and Codex (`spawn_agent` with the `orca_*` agents), the name mapping and
-parallel launch — [subagents.md](references/subagents.md); read it before the first
-delegation. The Pi and Claude Code agents are linked by `scripts/link-agents.sh` (setup
-does this itself); the launcher registers the Codex agents itself — only in the
-role's session.
+Use the launcher’s effective `policy` for this run. The Coordinator never
+creates helpers. An explicit `subagents` mapping replaces the defaults, and a
+custom helper occupies one of at most three places. With `use_subagents: false`
+or an unavailable helper, the role works inline. This also applies when another
+skill suggests delegation. Never bypass the policy through another CLI, MCP tool
+or recursive delegation. Record an instruction-only warning if the host cannot
+fully disable the mechanism.
 
-With `use_subagents: true` **delegation is the default mode**: the role's context is
-spent on decisions, not on reading diffs and writing code. Inline — for small things
-and when a helper is unavailable. An unavailable mechanism is not a blocker: the role
-works inline and notes the degradation in the report; do not install packages and do
-not change global settings.
+| Role | Default helper specializations |
+| --- | --- |
+| Planner | `scout`, `researcher`, `oracle` |
+| Implementer | `worker`, `scout`, and `verifier` in `self` only |
+| Reviewer | `reviewer`, `scout` |
+| Chief Reviewer | `reviewer`, `evidence-auditor`, `scout` |
 
-**N** is the selected profile's `max_subagents` (6 by default, from 1 to 100): how
-many helpers one role keeps running at the same time; the rest wait for a free slot.
-It is not a counter: the total number of helpers a role launches per run is not limited.
+`max_subagents` remains 6 by default, 1–100, and counts simultaneous instances.
+Provider mechanics, supported names and inline fallbacks are in [subagents.md](references/subagents.md).
 
-**pi-lens budget (Pi).** pi-lens and its tsserver (about 0.5–0.6 GB per session) live in
-the role's session and in **at most one child at a time**. A Pi child gets pi-lens when its
-definition does not set `extensions`: `lens-checker`, `verifier`, the bundled `researcher`
-and any other bundled or custom agent. The pipeline's `worker`, `reviewer`, `scout`,
-`oracle` and `evidence-auditor` run in Pi as the skill's `orca-*` agents without the
-user's extensions — without pi-lens, up to N at once. Calling `lens_diagnostics` yourself
-uses the role's own tsserver and costs nothing. Details and the fallback —
-[subagents.md §2a](references/subagents.md#2a-pi-pi-lens-budget).
-
-| Role | Helpers and purpose | Concurrently | Rules |
-| --- | --- | --- | --- |
-| Planner | `scout` (parallel by code area), `researcher` as needed, `oracle` for a contested decision | up to N | oracle ≤ 1 per plan version |
-| Implementer | `worker` for each TODO of a wave and for fix groups; `scout`/`researcher` for clarifications; `verifier` — only the self-check of `self` mode, not launched with reviewers | up to N in total; verifier — up to 3 of them (in Pi — 1, the pi-lens budget) | one worker per TODO/group per attempt; retry of a failed one — 1 time; one verifier set per self-check attempt |
-| Reviewer | `reviewer`-lanes by TODO/seams/delta; `lens-checker` (Pi) | up to N | one set of lanes per attempt |
-| Chief Reviewer | `reviewer`-lanes by area, `evidence-auditor`, `lens-checker` (Pi) | up to N | one set per attempt; evidence-auditor ≤ 1 per attempt |
-
-- **Waiting for children.** Launch the children, then wait for completion: in Pi (async
-  children) and Claude Code (background `Agent` calls) return control — the completion
-  notification wakes the role; in Codex wait with `wait_agent` (a loop with `timeout_ms` is
-  fine): Codex does not wake an idle role. Do not use `sleep`, timers or polling (`git status`,
-  checks, `status`) while children run: the tree in the middle of a wave says nothing —
-  check after the completion notification. `bg_wait` (Pi) is only for work without its own
-  notification (external CLIs, detached processes). Measure the system (memory, processes)
-  at the event, not by a timer.
-- The rules in the last column limit repeats within an attempt, not the total number
-  of launches. A failed worker is repeated once; if it fails again, the TODO is done
-  inline. BLOCKED is not issued for this reason alone.
-- Recursive children, terminals and worktrees are forbidden. No child accepts a
-  plan, a stage or the final.
-- There is no launch budget: do not count "used X of Y" and do not stop delegation
-  because of the number of launches. In the role's final report, in one line: how
-  many helpers were launched and the maximum concurrent (no more than N).
+**Waiting for children.** Launch the children, then wait for completion using
+the provider’s foreground result, notification or `wait_agent` in Codex. Do not
+use `sleep`, timers or polling. A failed worker can be retried once; when the
+mechanism is incompatible or the retry fails, do the work inline. In the final
+report record total and peak concurrent helpers. Children never issue verdicts.
 
 **Oracle (Planner).** Once per spec/plan version, only when a choice is needed
 between substantially different architectural options or there is a risk of violating
@@ -414,10 +383,11 @@ stop and show the user the full payload.
 
 ## Terminal setup and Coordinator exit
 
-First add `.orca-pod/` to the project's `.gitignore` (in `test` — the sandbox's):
+
+
+Add `.orca-pod/` to the project's `.gitignore` (in `test` — the sandbox's):
 `<skill-dir>/../orca-pod-setup/scripts/ensure-gitignore.sh <project-root>` (skip it without Git). The script is
-idempotent and changes only an existing `.gitignore`; this is the only project edit
-the Coordinator makes. Report `ADDED` to the user in one line, `OK` and `SKIP` —
+idempotent and changes only an existing `.gitignore`; the Coordinator keeps configuration migration separate from project code. Report `ADDED` to the user in one line, `OK` and `SKIP` —
 silently. No script — a warning, not a stop.
 
 This is a new pipeline: create your own role terminals right away in the exact workspace;
@@ -427,12 +397,15 @@ do not scan or adopt the user's live terminals. Terminals — only for the roles
 1. `ORCA terminal create --worktree <exact selector> --title <role> --json`.
 2. Immediately record the result and the handle; get any missing PTY metadata through
    `terminal show` of this handle, without searching by title.
-3. `ORCA terminal send --terminal <handle> --text 'exec node <absolute skill-dir>/scripts/launch-provider.mjs --role <role-key> --profile <selected profile>' --enter --json`.
+3. `ORCA terminal send --terminal <handle> --text 'exec node <absolute skill-dir>/scripts/launch-provider.mjs --role <role-key> --profile <selected profile> --coordinator --terminal <recorded handle>' --enter --json`.
 4. `ORCA terminal wait --terminal <handle> --for tui-idle --timeout-ms 60000 --json`;
    readiness is `satisfied: true`. `blockedReason: "agent-trust-workspace"` — the
    role's agent (Codex, Claude Code) asks whether to trust the folder: do not send the
    prompt, ask the user to answer in the `<title>` terminal and repeat wait after
-   their answer.
+   their answer. For Codex's hook trust screen, have the user inspect the
+   session-local orca-pod Stop hook. If the user declines the hook, stop the
+   Codex Planner handoff with the reason. Leave other hook trust settings alone.
+5. For a Codex Planner, run `node <absolute skill-dir>/scripts/codex-planner-mode.mjs --prepare <planner-handle>` before reporting readiness or delivering the first task. It uses `/plan` and verifies `/status` in that terminal. If mode verification fails, stop the handoff and report the exact error. Send the first task once after successful preparation using the normal delivery contract. Other roles skip this step.
 
 Role keys: planner, implementer, reviewer, chief_reviewer. Create is not idempotent:
 on a lost response check `terminal show` before retrying. The configured reviewers are
@@ -522,8 +495,26 @@ Reviewers do not know about the defect and review by the usual rules.
 
 Invoke `using-superpowers` first, then the agreed Planner skills and the mandatory
 brainstorming (Pi and Codex — `$superpowers:brainstorming`, Claude Code —
-`Skill brainstorming`). Delegate code research to parallel `scout`s by area;
-Researcher — as needed; Oracle — by the rules above.
+`Skill brainstorming`). Use the selected specializations only when effective
+policy permits; otherwise do the research inline.
+
+**Codex Plan document saves.** Start and conduct planning and blitzes in verified
+Plan. Before the first blitz, after any answer-driven revisions, and before
+approval of the exact final versions, finish the Plan turn with the marker
+`ORCA_POD_PLANNING_SAVE` on the first line of the final assistant message, followed
+by a JSON object. Its `documents` array has entries `{path, content, expectedHash}`
+with project-relative Markdown paths under `docs/superpowers/specs/` or
+`docs/superpowers/plans/` (or `.orca-pod/specs/`, `.orca-pod/plans/`,
+`.orca-pod/reports/`). `expectedHash` is null for a new file or the SHA-256
+of the current bytes. `continuation` names the next planning step. Emit the raw
+JSON without a code fence. Use no mutating tool to queue the save. The
+session-local Codex Stop hook reads the final message and waits for idle,
+verifies Default in the same session, saves just those documents, returns to Plan
+and sends the continuation only after verifying Plan. Report the result-log path
+if the save or return fails. Wait for `PLANNING DOCUMENTS SAVED` before asking for
+approval or handing off. Never submit application changes through this phase or
+choose Codex's plan implementation action. Use fresh paths for revisions of
+already approved immutable documents.
 
 Write the specification without Git writes: the RAF path or the verbatim
 TASK DESCRIPTION, constraints, agreed requirements. Right after writing it, print its path on a separate line,
@@ -531,7 +522,7 @@ TASK DESCRIPTION, constraints, agreed requirements. Right after writing it, prin
 show the file (no Git, or its folder is ignored: `git check-ignore -q <path>` succeeds), add one line that it
 will not appear among the changes in git or the IDE and is opened by this path. Inline self-review for the task,
 criteria and feasibility → `SELF-REVIEW: no issues` or `SELF-REVIEW: fixed <list>` →
-plan-blitz over the spec (Pi — `/skill:plan-blitz`, Claude Code — `Skill plan-blitz`, Codex —
+plan-blitz over the specification and design (one blitz for a combined document) (Pi — `/skill:plan-blitz`, Claude Code — `Skill plan-blitz`, Codex —
 `$plan-blitz`): rounds of multiple-choice questions whose last window is the user approval in the
 Planner's visible terminal. If plan-blitz is `not installed` (the REQUIRED PLANNER SKILLS line), warn
 the user in one line and ask for approval in plain text; this is not a stop.
@@ -561,7 +552,7 @@ no edits to existing tests; with `requested` — only the tests the user asked f
 no new test framework without their consent. Record the resolved settings and skill sources.
 
 Print `PLAN WRITTEN: <absolute path>` after writing the plan, with the same line about Git when it applies.
-Inline cross-review of the plan against the spec (scope, files, order, waves, risks,
+Inline cross-review of the plan against the approved specification and design (scope, files, order, waves, risks,
 checks) → plan-blitz over the plan, whose last window is the user approval. The approved
 spec/plan are immutable versions with
 absolute paths in the project; earlier versions are not overwritten. Then one
@@ -589,50 +580,28 @@ The mode is set by the set of roles in the selected profile (`launch-provider.mj
 | `chief` | Chief Reviewer only | Chief Reviewer (≤ 3 attempts) | Chief Reviewer — `FINAL_APPROVED` |
 | `self` | no reviewers | Implementer — self-check (≤ 3 attempts) | Implementer — `SELF_VERIFIED` |
 
-The single reviewer (`reviewer`/`chief`) combines both phases: the stages — per
-review-protocol §3–5, then the final check over all the code per §6 in the same role,
-without sending FINAL_READY. `evidence-auditor` — if this role has it.
+| Mode | Owner of cumulative diagnostics | Final attempt limit |
+| --- | --- | --- |
+| `full` | Reviewer on the first review of the last stage | Reviewer 3; Chief 2 |
+| `reviewer` | Reviewer | 3 including last-stage review and final diagnostics |
+| `chief` | Chief Reviewer | 3 including last-stage review and final diagnostics |
+| `self` | Implementer | 3 including last-stage self-check and final diagnostics |
+
+The Planner specifies diagnostic owner, scope, exact permitted read-only checks,
+timeout, fallback and required coverage. During implementation and earlier
+stages use targeted diagnostics for specific problems. On attempt one of the last
+stage the owner checks the cumulative task scope. After a fix, verify the delta
+and consumers affected by changed interfaces. In `full`, Chief reads Reviewer
+evidence and verifies Chief-requested fixes itself. See [review-protocol.md](references/review-protocol.md).
 
 ### Implementer self-check (`self` mode)
 
-Only in `self` mode: with a Reviewer or Chief Reviewer the Implementer goes from the
-checks straight to REVIEW_REQUEST (Invariants, "The reviewers check the code").
-There is no independent review, so the check is static and by criteria. With
-`use_subagents: true` the Implementer **does not check itself** but assigns this to the
-`verifier` subagent ([subagents.md](references/subagents.md)): it does not see the
-author's reasoning, keeps the analyzers' long output out of the Implementer's context
-and returns only findings. After the last wave of each stage:
-
-1. Wait for the children, stop writing, save the stage's patch snapshot in
-   `.orca-pod/reports/<planVersion>/` (like a reviewer, review-protocol §3 item 1; without Git there is none,
-   and the `verifier` gets the list of changed files).
-2. Launch `verifier`: the changed files and the patch, the stage's acceptance criteria,
-   the **exact** static-check commands from `verificationChecks` (analyzer,
-   linter, typecheck — for example `flutter analyze`, `dart analyze`, `tsc --noEmit`,
-   `eslint`), the path to review-protocol and the id prefix `S`. In Pi `verifier` itself calls
-   pi-lens (`lens_diagnostics`); in Claude Code there is no pi-lens — the step is skipped.
-   A large stage (more than ~6 TODOs) — up to 3 `verifier`s in parallel (no more than N; in Pi
-   only one — the pi-lens budget): the first runs all the commands and pi-lens, the others
-   check the criteria of their TODO groups.
-3. Consolidate the answer: ids `S<n>`, the review-protocol §1 scale (analyzer errors
-   in the changed files — BLOCKER, warnings — MINOR), an uncovered criterion is a
-   finding. You make the decision: the subagent does not issue `SELF_VERIFIED`.
-4. Blocking `S<n>` → a fix (by workers on non-overlapping files or
-   inline) → a repeat `verifier` run in registry check mode: the former ids
-   and the delta (review-protocol §4). No more than 3 attempts per stage, then `BLOCKED`
-   to the user. Do not fix warnings and errors outside the changed files —
-   list them in the report.
-5. The report `self-check-<stage>-attempt<N>.md` in `.orca-pod/reports/<planVersion>/`: the header like a review's,
-   the `S<n>` registry, the checks table, the line `Verdict: SELF_VERIFIED` or
-   `Verdict: CHANGES_REQUESTED`.
-
-`use_subagents: false` or `verifier` unavailable — the same steps inline: pi-lens
-(`lens-checker` or `lens_diagnostics`), the commands from the plan, the criteria
-check; in the report note that the self-check ran without a subagent.
-
-`SELF_VERIFIED` confirms the static checks and the coverage of the criteria, but does
-not replace review: in the final report state explicitly that there was no
-independent review.
+The Implementer owns diagnostics and the verdict. A selected `verifier` may
+check acceptance criteria or exact approved read-only commands; it does not
+load Lens. Record `S<n>` findings and up to three attempts using the report
+format. Use `SELF_VERIFIED` for complete verification, `CHANGES_REQUESTED` for
+blocking findings under the limit, or `COMPLETED_UNVERIFIED` when the conditions
+in the protocol are met. The result is a self-check.
 
 ## Implementer = Integrator
 
@@ -643,7 +612,7 @@ before the start (`git status --porcelain`); without Git — section "Project wi
 
 **Waves.** For each wave of the current stage:
 
-1. Launch **in parallel** one `worker` per TODO of the wave (up to N
+1. If effective policy allows `worker`, launch **in parallel** one `worker` per TODO of the wave (up to N
    at once — the profile's `max_subagents`, the rest as slots free up). The assignment: the whole TODO,
    the criteria, `writeScope` as the exclusive write zone, the needed places of
    the spec/plan, the project's constraints, the allowed local checks, the report
@@ -660,10 +629,10 @@ With `use_subagents: false` or without a `worker` — the same waves sequentiall
 
 **Checks.** After the last wave of the stage (or only of the last stage — as
 specified in the plan) run the approved `verificationChecks` yourself, fix what they
-report, record the actual commands/results/skipped with reasons. These are the plan's
+report, record the actual commands/results/skipped with reasons. Keep diagnostics targeted until the final stage. These are the plan's
 commands, not a review: with a Reviewer or Chief Reviewer do not launch `verifier`,
 review or audit lanes and do not read the diff in search of defects (Invariants, "The
-reviewers check the code"); `scout` and `researcher` clarify assignments, they do not
+reviewers check the code"); `scout` can clarify assignments and research bounded references, they do not
 audit finished code. Tests — only as the plan's
 `tests:` line allows (Invariants, "Tests only on request"): with `not requested` neither
 you nor the workers write, change or run tests or follow TDD, a worker's task carries
@@ -672,14 +641,14 @@ you nor the workers write, change or run tests or follow TDD, a worker's task ca
 **Review.** Wait for all children, stop writing and send the stage reviewer of your
 mode (Reviewer in `full`/`reviewer`, Chief Reviewer in `chief`) **one**
 REVIEW_REQUEST for the whole stage: TODO → files, baseline, checks, deviations from
-the plan. Do not send one TODO at a time for review. Do not change code until the verdict.
+the plan. Include final-stage marker, cumulative additions/changes/renames/deletions, affected consumers and planned diagnostics. Do not send one TODO at a time for review. Do not change code until the verdict.
 In `self` mode, instead — the self-check (section "Review modes").
 
 - `CHANGES_REQUESTED` — fix **only the listed blocking** ids
   (non-blocking ones optionally, if cheap and safe). Independent groups of
-  fixes — by parallel workers on non-overlapping files. Then a
+  fixes may use the selected `worker` when allowed, with non-overlapping files. Then a
   repeat REVIEW_REQUEST with an answer for each id: `FIXED` / `DISPUTED` /
-  `SKIPPED` (non-blocking only) and a list of other changes.
+  `SKIPPED` (non-blocking only), the fix delta, affected consumers and a list of other changes.
 - `APPROVED` of a stage — open the next stage; after the last one wait for the final
   verdict (in `full` — from the Chief Reviewer).
 - `PLAN_REVISION_REQUIRED` — freeze the work, wait for a new plan version.
@@ -693,7 +662,7 @@ directly to the Chief Reviewer (CHIEF_FIX). Do not change the scope/approved pla
 Work strictly by [review-protocol.md](references/review-protocol.md). In brief:
 
 - the first round: patch snapshot → parallel `reviewer`-lanes (by TODO, seams,
-  risk zones; in Pi also `lens-checker`) → consolidation and deduplication → classification
+  risk zones, when allowed) → consolidation and deduplication → classification
   by the scale → report → verdict;
 - in `CHANGES_REQUESTED` — a numbered list of **blocking items only** `R<n>`:
   what is wrong, where, the scenario, the minimal fix;
@@ -706,11 +675,10 @@ Work strictly by [review-protocol.md](references/review-protocol.md). In brief:
   in `reviewer` mode (Chief not configured) — you perform the final check yourself per
   review-protocol §6 and issue `FINAL_APPROVED` / `CHANGES_REQUESTED`.
 
-Your context is for decisions: do not read the whole diff yourself if lanes are
-available; check only the contested places selectively. The `lens-checker` (Pi)
-type-check is explicitly allowed by the pipeline owner; without the agent, run
-`lens_diagnostics` yourself; without the tool (Claude Code), skip it.
-Reviewers do not run build/test/lint.
+Use the planned read-only checks and record unsupported coverage and freshness.
+You own the cumulative pass only once, on the first attempt of the last stage.
+Reviewers run tests only if the plan permits them and the user requested them.
+Never use fix, format, build, or installation commands as diagnostics.
 
 ## Chief Reviewer: chief final review
 
@@ -720,15 +688,15 @@ configured) it first conducts the batch stage review itself per the "Reviewer"
 section and review-protocol §3–5 — REVIEW_REQUEST comes directly to you. On
 FINAL_READY (or after `APPROVED` of the last stage in `chief` mode): the last
 Reviewer report (the full registry), spec/plan, the Integrator's report, then **in
-parallel** lanes by area of the whole code + `evidence-auditor` (+ `lens-checker`
-in Pi). Check that the blocking `R<n>` are closed and have not returned, assess the
+parallel** lanes by code area and `evidence-auditor`, when selected and available. Check that the blocking `R<n>` are closed and have not returned, assess the
 code as a whole, write `chief-attempt<N>.md` and issue:
 
-- **FINAL_APPROVED** — no blocking findings; the only verdict that completes the pipeline;
+- **FINAL_APPROVED** — no blocking findings and required verification is complete;
+- **COMPLETED_UNVERIFIED** — required checks remain unavailable after bounded retry/fallback, with no unresolved blocking findings or other obligations;
 - **CHANGES_REQUESTED** — a list of blocking `C<n>`; the Integrator fixes and
-  sends CHIEF_FIX directly to you; attempt 2 is the registry check mode;
+  sends CHIEF_FIX directly to you; verify the registry, fix delta and affected consumers;
 - **PLAN_REVISION_REQUIRED** — a proven plan error → the Planner by handle;
-- **BLOCKED** — blocking findings after the 2nd attempt or an unresolvable conflict.
+- **BLOCKED** — blocking findings after the applicable limit (two in `full`, three in `chief`) or an unresolvable conflict.
 
 Send the verdict to the Implementer by the handle from FINAL_READY (in `chief` mode —
 from REVIEW_REQUEST) with the `orca terminal send` command: the role will not see
@@ -758,8 +726,8 @@ ones is kept. The user's refusal keeps BLOCKED. The Coordinator does not come ba
 
 ## Completion
 
-Only after the mode's final verdict (the reviewer's `FINAL_APPROVED` or
-`SELF_VERIFIED` in `self` mode) the Implementer reports in `LANGUAGE`: the review mode,
+Only after the mode's final verdict (`FINAL_APPROVED`, `SELF_VERIFIED`, or
+`COMPLETED_UNVERIFIED`) the Implementer reports in `LANGUAGE`: the review mode,
 changed files, waves and delegation (helpers launched, maximum concurrent), checks run/skipped,
 the verdicts and rounds of review or self-check, open non-blocking findings
 (`ACCEPTED_RISK`), plan revisions, report paths and the final status. No final
