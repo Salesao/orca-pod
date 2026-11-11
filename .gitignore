@@ -4,3 +4,4 @@ node_modules/
 graphify-out/
 .handoff/
 .errors/
+reports/
