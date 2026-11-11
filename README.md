@@ -8,7 +8,7 @@
 </h1>
 
 <p align="center">
-  <a href="#install"><img alt="agents: Claude Code, Codex, Pi" src="https://img.shields.io/badge/agents-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20Pi-3FE0C5?labelColor=0B2230"></a>
+  <a href="#install"><img alt="agents: Claude Code, Codex, Pi, Qoder, OMP" src="https://img.shields.io/badge/agents-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20Pi%20%C2%B7%20Qoder%20%C2%B7%20OMP-3FE0C5?labelColor=0B2230"></a>
   <img alt="node: 18 or newer" src="https://img.shields.io/badge/node-%E2%89%A5%2018-3FE0C5?labelColor=0B2230">
   <a href="LICENSE"><img alt="license: MIT" src="https://img.shields.io/badge/license-MIT-3FE0C5?labelColor=0B2230"></a>
 </p>
@@ -17,6 +17,8 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#why">Why</a> ·
+  <a href="#helpers">Helpers</a> ·
+  <a href="#pi-question-window">Pi question window</a> ·
   <a href="#plan-blitz">Plan blitz</a> ·
   <a href="#test-mode">Test mode</a> ·
   <a href="#configuration">Configuration</a> ·
@@ -27,10 +29,14 @@
 runs one coding task through a team of AI agents. A **Planner** works out a spec (what to build) and a plan (the steps)
 with you. An **Implementer** carries the plan out, handing independent steps to helper subagents
 that work in parallel. Optional **Reviewer** and **Chief Reviewer** roles then check the result stage by stage.
-Each role runs in its own Orca terminal and can use Claude Code, Codex or Pi with its own model and thinking level
+Each role runs in its own Orca terminal and can use Claude Code, Codex, Pi, Qoder or OMP with its own model and thinking level
 (how much the model reasons before it answers).
 
 Use it for a task big enough to need an approved plan before any code is written.
+
+The setup form supports **up to five profiles**, **three preset helper specializations per role** and
+**any number of custom helpers**. Define a helper's role and instructions in the form, choose its model and
+thinking, and save it with the project. Concurrent helpers are controlled separately: **6 by default, 1–100**.
 
 The repository contains three agent skills. A skill is a folder of instructions that your coding agent loads when
 you type its name, for example `/orca-pod`:
@@ -118,14 +124,18 @@ You ── /orca-pod <task> ──▶ Coordinator    your own session: checks th
 
 - **Plan first.** Nothing is implemented before you approve a spec and a plan.
 - **Parallel implementation.** The plan is split into waves: groups of independent TODOs (plan steps) that change
-  different files. The Implementer hands each TODO of a wave to its own worker subagent and runs the waves one after
-  another.
+  different files. With delegation enabled, the Implementer hands independent TODOs to selected workers and runs
+  the waves one after another. With delegation disabled, it does the work inline.
 - **No tests unless you ask.** The roles do not write, change or run tests and do not follow TDD; the checks are
   static (analyzer, linter, typecheck). Ask for tests in the task or tell the Planner, and the plan includes them.
-- **Batch review.** Reviewers get one request per stage and check it with parallel lanes. Findings go into a
+- **Batch review.** Reviewers get one request per stage and use parallel lanes when delegation is enabled. Findings go into a
   registry, and only `BLOCKER` and `MAJOR` findings block. Review is bounded: a Reviewer gets up to 3 rounds per
   stage and a Chief Reviewer up to 2 attempts (3 when it is the only reviewer); if it does not converge the run ends
   `BLOCKED` and you decide.
+- **Checks follow the change.** During work, diagnostics target changed files. The last stage gets one cumulative
+  pass over all changes. After fixes, checks cover the fix and affected consumers; Chief checks its own late fixes.
+  If required checks remain unavailable after retry and fallback, with the work complete and blockers resolved,
+  the result is `COMPLETED_UNVERIFIED`.
 - **Your choice of review depth**, set by which review roles are in the profile:
 
   | Roles configured | Mode | Final verdict |
@@ -162,8 +172,13 @@ Per agent:
 | Agent | What it needs |
 | --- | --- |
 | Claude Code | `claude` on `PATH` or in a usual install folder (`~/.local/bin`, `~/.claude/local`, Homebrew, nvm and others). The helper agents from `skills/orca-pod/agents/claude/` are linked into `~/.claude/agents/` by `orca-pod-setup`. |
-| Codex | `codex` on `PATH` or in a usual install folder. The `orca_*` helper agents are registered by the launcher, only inside each role's session. For roles to run `orca` inside the Codex sandbox you need the rule `prefix_rule(pattern=["orca"], decision="allow")` in `~/.codex/rules/default.rules`; `orca-pod-setup` offers to add it (it asks first). The rule is not needed when the profile uses `full_access`. |
+| Codex | `codex` on `PATH` or in a usual install folder. The `orca_*` helpers are registered for each role's session. For direct launches inside a sandbox, setup offers the rule `prefix_rule(pattern=["orca"], decision="allow")` in `~/.codex/rules/default.rules`. Coordinator launches request Full Access. Planner requires the verified Plan-mode and document-save controls described below. |
 | Pi | Verified with Pi 1.4.0 and pi-subagents 0.81.0. The role retains Lens for its checks. Local foreground helpers inherit registered model providers without loading ambient extensions. An incompatible route runs inline. |
+| Qoder | `qodercli` on `PATH` or in a usual install folder; use `provider: qoder` in YAML. Models come from `qodercli --list-models`; thinking uses `default`. Selected helper definitions are registered for the session. |
+| OMP | `omp` on `PATH` or in a usual install folder; use `provider: omp`. Models and supported thinking levels come from `omp models --json`. Setup links bundled agents; session policy controls native delegation. |
+
+Setup also offers an installed Qoder or OMP when its catalog is incomplete, with an **Enter model ID** option
+where capabilities permit it. See [verified versions and limitations](docs/compatibility/2026-11-11-provider-capabilities.md).
 
 orca-pod does not resume an interrupted run. If a run dies, start a new one: a new run is a new invocation
 of the skill.
@@ -178,6 +193,9 @@ This installs the three skills, only for Claude Code, Codex and Pi, globally and
 the pipeline are required: `orca-pod-setup` looks for `orca-pod` next to itself and refuses to start without it,
 and `orca-pod` calls `orca-pod-setup` when a project has no config. `plan-blitz` is optional: without it the
 Planner warns you in one line and asks you to approve the spec and the plan in plain text.
+
+The Coordinator can run in any of these three hosts and launch roles in all five installed providers, including
+Qoder and OMP. Authenticate each selected CLI before launching roles; catalog discovery checks model metadata.
 
 What it does: a global install (`-g`) puts the skill folders in `~/.agents/skills/` (`orca-pod`, `orca-pod-setup`,
 `plan-blitz`), which Codex and Pi read directly, and links them for Claude Code, for example
@@ -196,6 +214,21 @@ reports a few agents without global-install support as failed; ignore those line
 `npx skills add Salesao/orca-pod --list` shows what is in the repository without installing anything. Start a new
 agent session after installing (in Pi, `/reload`) so the skills are picked up.
 
+## Pi question window
+
+**pi-task** is a standalone Pi package that provides the **`pi_task`** question tool. Install it from a local
+checkout of its separate repository, then reload extensions or restart Pi:
+
+```bash
+pi install /absolute/path/to/pi-task
+```
+
+The skills installer does not install this package. The setup extension provides `orca_pod_setup` for the
+browser form; `pi-task` owns the question window used by plan-blitz. It also works independently of orca-pod.
+Use the arrow keys and Enter to choose an option, **Type something.** for a free answer, and tabs plus
+**Submit** for several questions. Esc cancels the question window after leaving an active text editor.
+An already installed legacy `orca_pod_ask` remains a fallback when `pi_task` is unavailable.
+
 ## First run
 
 Open your project in the agent and run the setup skill. It writes `.orca-pod/orca-pod.yaml` through a browser form.
@@ -212,21 +245,56 @@ The skill links the helper agents and opens the form, a local page (its address 
 you can open it by hand if the browser does not). When you press **Generate YAML**, the agent validates the file,
 saves it, checks every profile and offers the Codex rule when a Codex role needs it. In the form:
 
-1. **One profile is enough to start.** Add more later (a cheap one, a thorough one); with several, the Coordinator
-   asks which to use at each run.
-2. **Pick the default agent** (Claude Code, Codex or Pi). Only agents whose CLI is found on this machine are offered.
+1. **Create up to five profiles.** One is enough to start; add a cheap or thorough alternative later. Adding a
+   profile copies the current one. With several profiles, the Coordinator asks which to use at each run.
+2. **Pick the default agent** (Claude Code, Codex, Pi, Qoder or OMP). Only agents whose CLI is found on this machine are offered.
    Each role can override it.
 3. **Planner and Implementer are required.** Add **Reviewer** and/or **Chief Reviewer** if you want independent
    review. Without them the Implementer checks itself with static analysis and ends `SELF_VERIFIED`.
 4. **Choose a model and a thinking level per role** from the real catalogs. A stronger model for the Planner (and the
    Chief Reviewer) and a faster one for the Implementer is a common split.
-5. **Turn on subagents for the Implementer** (the "Subagents" switch of its role, `use_subagents`). The form starts
-   with the switch off for every role, and with it off the Implementer runs its waves one after another instead
-   of in parallel. Turn it on for the other roles that benefit too (the Planner's scouts, the Reviewers' lanes).
-   Leave **Concurrent subagents** at 6.
-6. **Leave Full access off** unless you have read the warning below.
+5. **Choose helpers per role.** Turn on `use_subagents` for the Implementer and any other role that should delegate;
+   new roles start with it off. Select up to three presets and add as many custom helpers as you need. With the
+   switch off, the role works inline. **Concurrent subagents** is a separate setting: 6 by default, 1–100.
+   See [Helpers](#helpers).
+6. **Review the access policy.** Coordinator launches request the supported YOLO mode; **Full access** controls
+   direct launches outside the Coordinator. See [Full access](#full-access).
 7. Press **Generate YAML**. The form hands the result to the agent, which validates and saves the file; the skill
    then adds `.orca-pod/` to your `.gitignore` if the project already has one (it never creates one).
+
+## Helpers
+
+Each role has its own helper selection:
+
+| Setting | Limit |
+| --- | --- |
+| Preset specializations | Up to 3 per role |
+| Custom helpers | No selection count limit |
+| Concurrent helper instances | `max_subagents`: 6 by default, 1–100 per role |
+
+The preset catalogs are:
+
+| Role | Defaults when no explicit helper selection is saved |
+| --- | --- |
+| Planner | `scout`, `researcher`, `oracle` |
+| Implementer | `worker`, `scout`, `verifier` (`verifier` only in `self` mode) |
+| Reviewer | `reviewer`, `scout` |
+| Chief Reviewer | `reviewer`, `evidence-auditor`, `scout` |
+
+To define your own helper in the setup form:
+
+1. Click **Add custom helper** in the role's card. The button stays available after all three presets are selected.
+2. Enter a unique name within that role, a one-line **Role description** and multiline **Instructions**.
+3. Choose its model and thinking, or `inherit` to use that role's settings, then generate and save the YAML.
+
+The definition stays in the project's config and survives reopening the form, copying a profile and switching
+delegation off. It is registered for the launched session in any of the five providers; no separate agent file
+is required. Planning and review helpers receive read-only tools, and helpers cannot delegate further.
+
+To connect an installed native helper by name, turn off **Define the helper's role in this form**. Installed
+custom names and names with their own description/instructions do not consume preset slots. An explicit
+selection replaces the defaults. When delegation is disabled or a helper is incompatible, the main role does
+the work inline; the launcher reports when the host can enforce a restriction only through instructions.
 
 ## Running a task
 
@@ -272,6 +340,10 @@ the path comes back at the approval. After each round the document gets a line i
 which version each round asked about. When there is no real choice, the blitz says so in one line before the
 approval.
 
+Questions are grounded in the current document and the decisions already recorded from you. Each decision has
+a stable identifier; accepted answers remain in the document's decision log. A later revision asks about changed
+or unresolved decisions rather than repeating the whole blitz.
+
 You can also run `plan-blitz` yourself on any spec or plan, for example after superpowers brainstorming or
 writing-plans:
 
@@ -290,6 +362,11 @@ The questions appear in each agent's own question window:
 | Pi | `pi_task` | Standalone pi-task package, with installed legacy `orca_pod_ask` or text as fallbacks. |
 | Qoder | `AskUserQuestion` | Native window when exposed. |
 | OMP | `ask` | Native window in interactive sessions. |
+
+For Codex, the Planner enters real Plan mode before receiving its task. Document saves briefly switch the same
+session to Default, save and verify the named files, and verify the return to Plan before continuing. Folder or
+planning-hook trust may require an answer in that role's terminal. If these controls cannot be verified, the
+handoff is blocked. See [provider compatibility](docs/compatibility/2026-11-11-provider-capabilities.md).
 
 Only when no permitted question window is available, or you explicitly choose text, the blitz asks in numbered text. Details: [skills/plan-blitz/README.md](skills/plan-blitz/README.md) and [SKILL.md](skills/plan-blitz/SKILL.md).
 
@@ -374,6 +451,11 @@ profiles:
           worker:
             model: inherit
             thinking: inherit
+          orders-expert:
+            model: inherit
+            thinking: inherit
+            description: "Implement order rules"
+            instructions: "Implement the assigned order rules.\nReport changed files and targeted checks."
       reviewer:
         model: opus
         thinking: high
@@ -384,12 +466,18 @@ profiles:
 | `active_profile` | The default profile, offered first at launch. |
 | `default_provider` | The agent (the config calls it a provider). At the top of the file: the fallback for profiles that name none. In a profile: the agent for roles without a `provider`. One of `pi`, `claude-code`, `codex`, `qoder`, `omp`. |
 | `language` | `auto` (default) or a language tag such as `en`, `ru`, `pt-BR`. |
-| `profiles` | One to three named profiles, each with its own roles, models and limits. |
+| `profiles` | One to five named profiles, each with its own roles, models and limits. |
 | `max_subagents` | Per profile: how many subagents one role runs at once, an integer 1–100, default 6. |
 | `full_access` | Per profile: see the warning above; `false` if absent. |
 | `roles` | `planner` and `implementer` are required; `reviewer` and `chief_reviewer` are optional and select the review mode. |
 | `provider`, `model`, `thinking` | Per role: the agent, a model that agent knows, and a thinking level it supports. |
-| `use_subagents`, `subagents` | Per role: delegate to helper subagents (`true`) or work inline, and the model and thinking of each helper; `inherit` takes the value of the role itself. |
+| `use_subagents`, `subagents` | Per role: delegate (`true`) or work inline (`false`); choose up to three preset specializations and any number of custom helpers. Each helper has model/thinking; `inherit` takes the parent role's value. |
+| `description`, `instructions` | Per custom helper: a one-line role description and multiline instructions, required together. The form saves line breaks as `\n` inside a quoted YAML string. Omit both to use an installed native definition. |
+
+Helper names use lowercase letters, digits and hyphens, start with a letter, and are unique within a role. When an old
+config has more than five profiles, setup/preflight keeps the active profile and the first four others and
+saves the complete original as `orca-pod.yaml.backup-<unique-id>`. Restore choices from that backup before saving
+a different set of up to five profiles; cancelling the form does not undo a completed migration.
 
 Every field is described in [skills/orca-pod-setup/references/settings.md](skills/orca-pod-setup/references/settings.md).
 To check a config without starting anything, run this from the project root:
@@ -400,12 +488,11 @@ node ~/.agents/skills/orca-pod/scripts/launch-provider.mjs --profiles
 
 ## Troubleshooting
 
-- **A role terminal is stuck on a trust question.** Codex and Claude Code ask whether to trust a folder the first
+- **A role terminal is stuck on a trust question.** Codex, Claude Code and Qoder can ask whether to trust a folder the first
   time a role starts in it, and Codex asks even with `full_access`. The Coordinator reports the blocked terminal;
   answer the question in that role's terminal and the run continues.
-- **Claude Code shows a "Bypass Permissions" confirmation.** With `full_access: true` the Claude Code roles start in
-  bypass mode, and Claude Code asks you to confirm it in the role's terminal. Confirm there, or turn `full_access`
-  off in `orca-pod-setup`.
+- **Claude Code shows a "Bypass Permissions" confirmation.** Coordinator launches request this mode. Answer in
+  the role's terminal. For a direct launch, `full_access: false` uses the host's normal access policy.
 - **Codex fails with `runtime_access_denied` when a role runs `orca`.** The Codex rule is missing. Run
   `orca-pod-setup` again and answer yes to the rule, or add `prefix_rule(pattern=["orca"], decision="allow")` to
   `~/.codex/rules/default.rules` yourself, or approve the elevated-privilege retry Codex asks for. Do not work
@@ -449,6 +536,8 @@ them. Remove them the same way (errors about a missing folder are harmless):
 ```bash
 find ~/.claude/agents ~/.pi/agent/agents -maxdepth 1 -type l -lname '*/skills/orca-pod/agents/*' -print
 find ~/.claude/agents ~/.pi/agent/agents -maxdepth 1 -type l -lname '*/skills/orca-pod/agents/*' -delete
+[ ! -d ~/.omp/agent/agents ] || find ~/.omp/agent/agents -maxdepth 1 -type l -lname '*/skills/orca-pod/agents/*' -print
+[ ! -d ~/.omp/agent/agents ] || find ~/.omp/agent/agents -maxdepth 1 -type l -lname '*/skills/orca-pod/agents/*' -delete
 [ -L ~/.pi/agent/extensions/orca-pod-setup ] && rm ~/.pi/agent/extensions/orca-pod-setup
 ```
 
@@ -458,6 +547,8 @@ link that still works (another installed version uses it) is left alone and show
 
 Your projects keep their `.orca-pod/` folder (config and reports); delete it if you do not want it. The Codex rule
 in `~/.codex/rules/default.rules` stays until you remove that line.
+
+The standalone pi-task package is managed separately through Pi's package commands.
 
 ## More documentation
 
@@ -476,13 +567,3 @@ CI runs the same command on Node 20.
 ## License
 
 MIT, see [LICENSE](LICENSE).
-
-## Role launch and verification
-
-Roles support Pi, Codex, Claude Code, Qoder and OMP. Coordinator requests the supported session-local YOLO mode for every role and reports the effective access. Pi uses host permissions. The `full_access` switch controls direct launches. Delegation is independent.
-
-A configuration has at most five profiles. A role can select up to three preset helper specializations and any number of custom helpers. Explicit selections replace defaults; concurrent instances remain a separate limit of 6 by default, 1–100. Setup and Coordinator preflight retain the active profile and the first four others and keep a complete backup beside the original configuration.
-
-Diagnostics are targeted during work. The last stage has one cumulative pass. Fix checks cover the fix and affected consumers, including fixes requested by Chief. Required coverage that remains unavailable after retry and fallback yields `COMPLETED_UNVERIFIED` when the other work is complete and blockers are resolved.
-
-Install the optional Pi question window with `pi install /absolute/path/to/pi-task` from a local checkout. [Verified provider versions and limitations](docs/compatibility/2026-11-11-provider-capabilities.md).
