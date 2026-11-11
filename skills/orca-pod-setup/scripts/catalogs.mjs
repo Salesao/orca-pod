@@ -14,6 +14,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { getProviderCapabilities, MODEL_CATALOG_ARGS, parseModelCatalog, PROVIDER_EXECUTABLES } from '../../orca-pod/scripts/provider-capabilities.mjs';
 import { readCodexCatalog } from '../../orca-pod/scripts/codex-models.mjs';
 import { displayPath, envFor, findExecutable } from '../../orca-pod/scripts/find-executable.mjs';
 
@@ -21,8 +22,8 @@ import { displayPath, envFor, findExecutable } from '../../orca-pod/scripts/find
 const PI_SCOPES = ['@earendil-works', '@mariozechner'];
 const PI_ALL_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 // The agents whose catalogs go into the form.
-export const ENABLED_PROGRAMS = ['pi', 'claude-code', 'codex'];
-export const KNOWN_PROGRAMS = ['pi', 'claude-code', 'codex'];
+export const ENABLED_PROGRAMS = Object.keys(PROVIDER_EXECUTABLES);
+export const KNOWN_PROGRAMS = ENABLED_PROGRAMS;
 export const CLAUDE_CODE_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const CLAUDE_CODE_ALIASES = ['opus', 'sonnet', 'haiku', 'fable'];
 const CLAUDE_FAMILY_ORDER = ['fable', 'opus', 'sonnet', 'haiku'];
@@ -47,7 +48,7 @@ function run(file, args, { cwd, env, timeoutMs, label }) {
     const child = spawn(file, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
-    const timer = setTimeout(() => { child.kill('SIGTERM'); reject(new Error(label + ' did not answer within ' + timeoutMs / 1000 + ' s')); }, timeoutMs);
+    const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(label + ' did not answer within ' + timeoutMs / 1000 + ' s')); }, timeoutMs);
     child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.stderr.on('data', (chunk) => { stderr += chunk; });
     child.on('error', (error) => { clearTimeout(timer); reject(error); });
@@ -261,18 +262,43 @@ export async function piCatalog({ cwd }) {
   return { program: 'pi', models, source: 'Pi: ' + listSource + ' — ' + models.length + ' models; ' + levelSource + foundAt(pi) };
 }
 
-// piModels — an already known Pi catalog (for example the registry of the current Pi session); otherwise the CLI.
-export async function discoverCatalogs({ cwd, piModels = null, anthropicModels = null, programs = ENABLED_PROGRAMS }) {
-  const catalogs = [];
-  if (programs.includes('pi')) {
-    catalogs.push(piModels
-      ? { program: 'pi', models: piModels, source: 'Pi: registry of the current Pi session — ' + piModels.length + ' models' }
-      : await piCatalog({ cwd }));
-  }
-  if (programs.includes('claude-code')) catalogs.push(await claudeCodeCatalog({ anthropicModels }));
-  if (programs.includes('codex')) catalogs.push(codexCatalog());
+async function localModelCatalog(program, cwd, timeoutMs) {
+  const executable = findExecutable(PROVIDER_EXECUTABLES[program]) ?? (program === 'qoder' ? findExecutable('qoder') : null);
+  const source = `${program}: ${PROVIDER_EXECUTABLES[program]}`;
+  if (!executable) return { program, models: [], source: source + NOT_FOUND, available: false };
+  const options = { cwd, env: envFor(executable), timeoutMs, label: program };
+  const [version, help, listing] = await Promise.allSettled([
+    run(executable.file, ['--version'], options), run(executable.file, ['--help'], options),
+    run(executable.file, MODEL_CATALOG_ARGS[program], options),
+  ]);
+  const evidence = {
+    version: version.status === 'fulfilled' ? version.value.stdout.match(/[0-9]+\.[0-9]+\.[0-9]+/)?.[0] : null,
+    help: help.status === 'fulfilled' ? help.value.stdout + help.value.stderr : '',
+  };
+  const capabilities = getProviderCapabilities(program, evidence);
+  const result = listing.status === 'fulfilled' ? parseModelCatalog(program, listing.value.stdout)
+    : { models: [], source, status: 'unavailable' };
+  return { ...result, program, available: true, capabilities, source: result.source + foundAt(executable) };
+}
+
+// A failure in one provider does not suppress the other local catalogs.
+export async function discoverCatalogs({ cwd, piModels = null, anthropicModels = null, programs = ENABLED_PROGRAMS, timeoutMs = 10000 }) {
+  const catalogs = await Promise.all(programs.map(async (program) => {
+    switch (program) {
+      case 'pi': return piModels ? { program, models: piModels, available: true, source: 'Pi: registry of the current Pi session — ' + piModels.length + ' models' } : piCatalog({ cwd });
+      case 'claude-code': return claudeCodeCatalog({ anthropicModels });
+      case 'codex': return codexCatalog();
+      case 'qoder': case 'omp': return localModelCatalog(program, cwd, timeoutMs);
+      default: throw new Error(`Unknown provider ${program}`);
+    }
+  }));
   return {
-    models: catalogs.flatMap((catalog) => catalog.models),
-    sources: catalogs.map((catalog) => catalog.source),
+    models: catalogs.flatMap(({ models, source }) => models.map((model) => ({ source, reasoningKind: 'levels', ...model }))),
+    sources: catalogs.map(({ source }) => source),
+    providers: catalogs.map(({ program: id, models, available = Boolean(findExecutable(PROVIDER_EXECUTABLES[id])), status, capabilities = getProviderCapabilities(id) }) => {
+      const catalogStatus = status ?? (models.length ? 'available' : 'unavailable');
+      const warning = available && catalogStatus !== 'available' ? `${id}: model catalog ${catalogStatus}; enter an exact model ID if supported` : undefined;
+      return { id, available, catalogStatus, capabilities, warning };
+    }),
   };
 }

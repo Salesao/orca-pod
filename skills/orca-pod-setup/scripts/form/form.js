@@ -37,6 +37,8 @@ let defProv = 'pi';
 let nameRe = /^\S+$/u;
 let languageRe = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
 let limitMax = 100;
+let maxProfiles = 3;
+let maxRoleSpecializations = 3;
 let limitDefault = 6;
 let lastErrors = [];
 
@@ -116,7 +118,9 @@ function applyStaticText() {
 // "Settings will be saved to {path} — ...": the path is an element, so the message is cut at the placeholder.
 function renderMeta() {
   const [before, after = ''] = tr('app.meta', { path: '\u0000' }).split('\u0000');
-  $('app-meta').replaceChildren(before, $('target-path'), after);
+  const migration = D?.profileUpgrade;
+  $('app-meta').replaceChildren(before, $('target-path'), after, ...(migration?.status === 'upgraded' ?
+    [h('div', { text: tr('limits.upgraded', { kept: migration.kept.join(', '), archived: migration.archived.join(', '), backup: migration.backupPath }) })] : []));
 }
 
 // ── catalog helpers: model key '<program>:<YAML value>' ──
@@ -124,7 +128,10 @@ const modelKey = (m) => m.program + ':' + (m.program === 'pi' ? m.provider + '/'
 const progOf = (key) => { const s = key || ''; const i = s.indexOf(':'); return i < 0 ? '' : s.slice(0, i); };
 const progLabel = (prog) => (D.programLabels && D.programLabels[prog]) || prog;
 const effProg = (key) => state[key].provider || defProv;
-const findModel = (key) => modelIndex.get(key) || null;
+const allowsManual = (program) => D.programs.some((entry) => entry.id === program && entry.manual);
+const manualKey = (program, id) => allowsManual(program) && /^[A-Za-z0-9][A-Za-z0-9_./:@+-]{0,255}$/.test(id) ? program + ':' + id : '';
+const findModel = (key) => modelIndex.get(key) || (key && manualKey(progOf(key), key.slice(key.indexOf(':') + 1))
+  ? { levels: ['default'], source: 'manual' } : null);
 const levelsOf = (key) => { const m = findModel(key); return m ? m.levels : []; };
 const shortModel = (key) => { const v = (key || '').slice((key || '').indexOf(':') + 1); const i = v.indexOf('/'); return i < 0 ? v : v.slice(i + 1); };
 const effModel = (st, s) => (!s.model || s.model === 'inherit') ? st.model : s.model;
@@ -143,7 +150,7 @@ function resolveModel(value, prog) {
     const hits = D.models.filter((m) => m.program === 'pi' && m.id === value);
     if (hits.length === 1) return modelKey(hits[0]);
   }
-  return '';
+  return manualKey(prog, value);
 }
 const modelCountLabel = (n) => tn(lang, 'plural.models', n);
 function programOptions() {
@@ -160,6 +167,8 @@ function fillModelSelect(select, head, value, prog, forSubagent = false) {
     groups.get(name).push(m);
   }
   const nodes = head.map(([v, label]) => h('option', { value: v, text: label }));
+  if (value && value !== 'inherit' && !findModel(value)) nodes.push(h('option', { value, text: shortModel(value) }));
+  if (value && findModel(value)?.source === 'manual') nodes.push(h('option', { value, text: tr('manual.selected', { id: shortModel(value) }) }));
   if (!groups.size) nodes.push(h('option', { disabled: true, text: tr('model.none', { agent: progLabel(prog) }) }));
   for (const name of [...groups.keys()].sort()) {
     nodes.push(h('optgroup', { label: name }, groups.get(name).map((m) => h('option', { value: modelKey(m), text: m.label || m.id }))));
@@ -240,7 +249,7 @@ function initState(key, preRoles) {
     let model = 'inherit';
     if (s.model && s.model !== 'inherit') {
       model = resolveModel(s.model, prog);
-      if (!model) { st.notes.push(msg('note.subagentModelMissing', { name: s.name, model: s.model })); model = 'inherit'; }
+      if (!model) { st.notes.push(msg('note.subagentModelMissing', { name: s.name, model: s.model })); model = prog + ':' + s.model; }
       else if (findModel(model).roleOnly) { st.notes.push(msg('note.subagentAlias', { name: s.name, agent: progLabel(prog), model: s.model })); model = 'inherit'; }
     }
     st.subagents.push({ name: s.name, model, thinking: s.thinking || 'inherit' });
@@ -254,7 +263,6 @@ function defaultHelper(key, name) {
 function setUse(key, on) {
   const st = state[key];
   st.useSubagents = on;
-  if (on && !st.subagents.length) st.subagents.push(defaultHelper(key, agentsFor(key)[0]));
 }
 
 // ── role card ──
@@ -294,8 +302,8 @@ function applyProgram(key) {
     st.notes = [msg('note.modelUnavailable', { model: shortModel(st.model), agent: progLabel(prog) })];
     st.model = '';
   }
-  st.subagents = st.subagents.filter((s) => prog === 'pi' || s.name !== 'lens-checker');
   st.subagents.forEach((s) => { if (s.model && s.model !== 'inherit' && (progOf(s.model) !== prog || findModel(s.model)?.roleOnly)) s.model = 'inherit'; });
+  if ($(key + '-model-help')) $(key + '-model-help').hidden = !allowsManual(prog);
   fillModelSelect($(key + '-model'), [['', tr('model.pick')]], st.model, prog);
   showNotes(key);
   updateBadge(key);
@@ -360,6 +368,16 @@ function buildRole(role) {
   } });
   fillModelSelect(modelSelect, [['', tr('model.pick')]], st.model, effProg(key));
 
+  const manualButton = h('button', { type: 'button', class: 'btn btn-outline-secondary btn-sm',
+    hidden: !allowsManual(effProg(key)), onclick: () => {
+      const answer = window.prompt(tr('manual.prompt'));
+      if (answer === null) return;
+      const value = manualKey(effProg(key), answer.trim());
+      if (!value) { setError(key + '-model', tr('manual.invalid')); return; }
+      st.model = value;
+      fillModelSelect(modelSelect, [['', tr('model.pick')]], value, effProg(key));
+      clearError(key + '-model'); syncRoleThinking(key); refreshHelpers(key);
+    } }, tr('manual.button'));
   const thinkSelect = h('select', { class: 'form-select', onchange: () => {
     st.thinking = thinkSelect.value; clearError(key + '-think'); refreshHelpers(key);
   } });
@@ -377,9 +395,19 @@ function buildRole(role) {
     h('div', { class: 'invalid-feedback', id: key + '-use-err' }));
   useInput.setAttribute('aria-describedby', key + '-use-err');
 
-  const addButton = h('button', { type: 'button', class: 'btn btn-outline-secondary btn-sm btn-icon-text', id: key + '-add', onclick: () => {
+  const addCustom = h('button', { type: 'button', class: 'btn btn-outline-secondary btn-sm', id: key + '-add-custom', onclick: () => {
+    const name = window.prompt(tr('custom.prompt'))?.trim();
+    if (!name) return;
+    if (!/^[a-z][a-z0-9-]{0,63}$/.test(name) || takenNames(key).includes(name) || name === 'lens-checker' || (key === 'implementer' && name === 'researcher')) {
+      setError(key + '-use', tr('custom.invalid')); return;
+    }
+    if (st.subagents.length >= maxRoleSpecializations) return;
+    st.subagents.push(defaultHelper(key, name));
+    clearError(key + '-use'); renderHelpers(key);
+  } }, tr('custom.button'));
+  const addButton = h('button' , { type: 'button', class: 'btn btn-outline-secondary btn-sm btn-icon-text', id: key + '-add', onclick: () => {
     const free = agentsFor(key).filter((a) => !takenNames(key).includes(a));
-    if (!free.length) return;
+    if (!free.length || st.subagents.length >= maxRoleSpecializations) return;
     st.subagents.push(defaultHelper(key, free[0]));
     renderHelpers(key);
     $(key + '-sa' + (st.subagents.length - 1) + '-agent')?.focus();
@@ -399,21 +427,22 @@ function buildRole(role) {
     h('div', { class: 'notes', id: key + '-notes', role: 'status' }),
     h('div', { class: 'row g-3' },
       field({ id: key + '-prog', label: tr('field.agent'), yamlKey: 'provider', control: progSelect, cols: 'col-12 col-sm-6 col-lg-3' }),
-      field({ id: key + '-model', label: tr('field.model'), yamlKey: 'model', control: modelSelect, cols: 'col-12 col-sm-6 col-lg-3' }),
+      field({ id: key + '-model', label: tr('field.model'), yamlKey: 'model', control: modelSelect, helpEl: manualButton, cols: 'col-12 col-sm-6 col-lg-3' }),
       field({ id: key + '-think', label: tr('field.thinking'), yamlKey: 'thinking', control: thinkSelect, help: '', cols: 'col-12 col-sm-6 col-lg-3' }),
       useCol),
-    h('div', { class: 'helpers', id: key + '-helpers', hidden: !st.useSubagents, 'aria-labelledby': key + '-helpers-title' },
+    h('div', { class: 'helpers', id: key + '-helpers', hidden: !st.useSubagents && !st.subagents.length, 'aria-labelledby': key + '-helpers-title' },
       h('h3', { class: 'helpers-title', id: key + '-helpers-title', text: tr('subagents.title') }),
       h('div', { id: key + '-sa-list' }),
-      h('div', { class: 'helpers-actions' }, addButton, h('span', { class: 'helpers-hint', id: key + '-add-hint' }))));
+      h('div', { class: 'helpers-actions' }, addButton, addCustom, h('span', { class: 'helpers-hint', id: key + '-add-hint' }))));
 }
 
 // ── helpers ──
 function updateAddState(key) {
   const st = state[key];
   const free = agentsFor(key).filter((a) => !takenNames(key).includes(a));
-  const blocked = st.useSubagents && !free.length;
+  const blocked = state[key].subagents.length >= maxRoleSpecializations || st.useSubagents && !free.length;
   $(key + '-add').disabled = blocked;
+  $(key + '-add-custom').disabled = st.subagents.length >= maxRoleSpecializations;
   $(key + '-add-hint').textContent = blocked ? tr('subagents.allAdded') : '';
 }
 function refreshAgentOptions(key) {
@@ -432,14 +461,12 @@ function refreshHelpers(key) {
 }
 function renderHelpers(key) {
   const st = state[key];
-  $(key + '-helpers').hidden = !st.useSubagents;
+  $(key + '-helpers').hidden = !st.useSubagents && !st.subagents.length;
   const list = $(key + '-sa-list');
   rowRefresh[key] = [];
-  const rows = st.useSubagents
-    ? (st.subagents.length
-      ? st.subagents.map((s, i) => buildHelperRow(key, s, i))
-      : [h('p', { class: 'helpers-empty', text: tr('subagents.empty') })])
-    : [];
+  const rows = st.subagents.length
+    ? st.subagents.map((s, i) => buildHelperRow(key, s, i))
+    : [h('p', { class: 'helpers-empty', text: tr('subagents.empty') })];
   list.replaceChildren(...rows);
   refreshHelpers(key);
 }
@@ -484,7 +511,6 @@ function buildHelperRow(key, s, i) {
     if (!levels.length) {
       fillSelect(thinkSelect, [['inherit', tr('think.first'), true]], 'inherit');
       thinkSelect.disabled = true;
-      s.thinking = 'inherit';
       return;
     }
     thinkSelect.disabled = false;
@@ -493,7 +519,7 @@ function buildHelperRow(key, s, i) {
     const items = [['inherit', tr(inheritOk ? 'inherit.thinking' : 'inherit.thinkingBad', { level }), !inheritOk]]
       .concat(levels.map((l) => [l, l]));
     const valid = s.thinking === 'inherit' ? inheritOk : levels.includes(s.thinking);
-    if (!valid) s.thinking = inheritOk ? 'inherit' : pickLevel(levels, 'low');
+    if (!valid && s.thinking !== 'inherit') items.push([s.thinking, s.thinking]);
     fillSelect(thinkSelect, items, s.thinking);
   }
   rowRefresh[key].push(refresh);
@@ -577,6 +603,8 @@ function renderProfileFields() {
   sw.checked = isDefault(profile);
   sw.disabled = isDefault(profile);
   $('profile-default-state').textContent = tr(isDefault(profile) ? 'profile.default.yes' : 'profile.default.no');
+  $('profile-add').disabled = profiles.length >= maxProfiles;
+  $('profile-add').title = profiles.length >= maxProfiles ? tr('limits.profiles', { max: maxProfiles }) : '';
   $('profile-delete').disabled = profiles.length < 2;
   $('profile-delete-hint').textContent = profiles.length < 2 ? tr('profile.delete.hint') : '';
   for (const id of ['profile-name', 'max-subagents']) clearError(id);
@@ -598,6 +626,7 @@ function selectProfile(index, focusTab = false) {
   for (const e of lastErrors) if (e.uid === currentProfile().uid && e.id) setError(e.id, errorText(e));
 }
 function addProfile() {
+  if (profiles.length >= maxProfiles) return;
   const source = currentProfile();
   const copy = { uid: nextUid++, name: uniqueName(source.name), defProv: source.defProv, maxSubagents: source.maxSubagents, fullAccess: source.fullAccess, roles: JSON.parse(JSON.stringify(source.roles)) };
   for (const st of Object.values(copy.roles)) st.notes = [];
@@ -660,8 +689,7 @@ function collectRoleErrors(add) {
     if (!st.model || !findModel(st.model)) add(key + '-model', 'v.role.modelPick', { role: name, agent: progLabel(prog) });
     else if (progOf(st.model) !== prog) add(key + '-model', 'v.role.modelUnavailable', { role: name, agent: progLabel(prog) });
     else if (!levelsOf(st.model).includes(st.thinking)) add(key + '-think', 'v.role.thinking', { role: name, thinking: st.thinking });
-    if (!st.useSubagents) continue;
-    if (!st.subagents.length) { add(key + '-use', 'v.role.noSubagents', { role: name }); continue; }
+    if (st.subagents.length > maxRoleSpecializations) add(key + '-use', 'limits.helpers', { max: maxRoleSpecializations });
     const seen = new Set();
     st.subagents.forEach((s, i) => {
       const base = key + '-sa' + i;
@@ -669,9 +697,11 @@ function collectRoleErrors(add) {
       const label = msg('v.sub.label', { role: name, who });
       if (!s.name) add(base + '-agent', 'v.sub.pick', { label });
       else if (seen.has(s.name)) add(base + '-agent', 'v.sub.twice', { label });
-      else if (s.name === 'lens-checker' && prog !== 'pi') add(base + '-agent', 'v.sub.lensPi', { label });
+      else if (s.name === 'lens-checker' || (key === 'implementer' && s.name === 'researcher')) {
+        add(base + '-agent', 'limits.legacyHelper', { name: s.name });
+      }
       if (s.name) seen.add(s.name);
-      if (s.model && s.model !== 'inherit' && progOf(s.model) !== prog) add(base + '-model', 'v.sub.modelUnavailable', { label, agent: progLabel(prog) });
+      if (s.model && s.model !== 'inherit' && (!findModel(s.model) || progOf(s.model) !== prog)) add(base + '-model', 'v.sub.modelUnavailable', { label, agent: progLabel(prog) });
       else if (s.model && s.model !== 'inherit' && findModel(s.model)?.roleOnly) add(base + '-model', 'v.sub.aliasOnly', { label });
       const levels = levelsOf(effModel(st, s));
       const ok = s.thinking === 'inherit' ? (!!st.thinking && levels.includes(st.thinking)) : levels.includes(s.thinking);
@@ -754,7 +784,7 @@ async function submit() {
         if (!st.enabled) continue; // an optional role that was not added does not go to the YAML
         roles[key] = {
           provider: st.provider || '', model: st.model, thinking: st.thinking, useSubagents: st.useSubagents,
-          subagents: st.useSubagents ? st.subagents.map((s) => ({ name: s.name, model: s.model || 'inherit', thinking: s.thinking })) : [],
+          subagents: st.subagents.map((s) => ({ name: s.name, model: s.model || 'inherit', thinking: s.thinking })),
         };
       }
       return { name: profile.name, defaultProvider: profile.defProv, maxSubagents: profile.maxSubagents, fullAccess: profile.fullAccess === true, roles };
@@ -846,9 +876,14 @@ function render(data) {
 
   if (D.profileNamePattern) nameRe = new RegExp(D.profileNamePattern, 'u');
   if (D.languagePattern) languageRe = new RegExp(D.languagePattern);
-  if (D.limits) ({ maxSubagentsLimit: limitMax, maxSubagentsDefault: limitDefault } = D.limits);
+  if (D.limits) {
+    ({ maxSubagentsLimit: limitMax, maxSubagentsDefault: limitDefault } = D.limits);
+    maxProfiles = D.limits.maxProfiles ?? maxProfiles;
+    maxRoleSpecializations = D.limits.maxRoleSpecializations ?? maxRoleSpecializations;
+  }
   const maxInput = $('max-subagents');
   maxInput.max = String(limitMax);
+  renderMeta();
   $('sources').replaceChildren(...(D.sources || []).map((s) => h('li', { text: s })));
 
   $('language').addEventListener('change', () => clearError('language'));
@@ -889,7 +924,6 @@ function render(data) {
   $('profile-add').addEventListener('click', addProfile);
   $('profile-delete').addEventListener('click', deleteProfile);
   $('profile-tabs').addEventListener('keydown', onTabKey);
-  $('profile-add').disabled = false;
 
   // The config language takes part in the choice now that it is known (a stored toggle choice still wins).
   setLanguage(detectLanguage(D.pre.language), { persist: false });

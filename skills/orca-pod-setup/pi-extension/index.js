@@ -1,4 +1,6 @@
-import { askResultText, createAskComponent, normalizeAskParams } from './ask.js';
+// Both Pi loaders resolve the legacy namespace to their own SDK packages.
+import { Type, getSupportedThinkingLevels } from '@mariozechner/pi-ai';
+import { defineTool } from '@mariozechner/pi-coding-agent';
 import { lstat, readFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -17,24 +19,11 @@ async function loadSetupScripts() {
   const { expectedPipelineSkill, findPipelineSkill, PIPELINE_MISSING } = await load('pipeline-skill.mjs');
   const setupSkillDir = path.resolve(here, '..');
   if (!findPipelineSkill(setupSkillDir)) throw new Error(PIPELINE_MISSING(expectedPipelineSkill(setupSkillDir)));
-  const [form, catalogs, location] = await Promise.all([
+  const [form, catalogs, location, upgrade] = await Promise.all([
     load('pipeline-form.mjs'), load('catalogs.mjs'), load('../../orca-pod/scripts/config-location.mjs'),
+    load('../../orca-pod/scripts/profile-upgrade.mjs'),
   ]);
-  return { startPipelineForm: form.startPipelineForm, discoverCatalogs: catalogs.discoverCatalogs, location };
-}
-
-// Pi's packages are @earendil-works/* since Pi 0.74 and @mariozechner/* before it. Pi maps them for extensions, dynamic
-// imports included: Pi 0.74+ maps both scopes, older Pi only the old one. So each package is imported by the new name and,
-// failing that, by the old one, and the extension loads in both. A static import would tie it to one of them.
-const PI_SCOPES = ['@earendil-works', '@mariozechner'];
-
-async function importPiPackage(name) {
-  let firstError;
-  for (const scope of PI_SCOPES) {
-    try { return await import(scope + '/' + name); }
-    catch (error) { firstError ??= error; }
-  }
-  throw firstError;
+  return { startPipelineForm: form.startPipelineForm, discoverCatalogs: catalogs.discoverCatalogs, location, upgradeProfiles: upgrade.upgradeProfiles };
 }
 
 function formOutputSchema(Type) {
@@ -42,6 +31,7 @@ function formOutputSchema(Type) {
   const RoleSettings = Type.Object({
     provider: Type.Optional(Type.String()),
     model: Type.String(),
+    modelSource: Type.Optional(Type.Literal('manual')),
     thinking: Type.String(),
     useSubagents: Type.Boolean(),
     subagents: Type.Array(AgentSettings),
@@ -61,6 +51,7 @@ function formOutputSchema(Type) {
     url: Type.String(),
     // Migration of the old .orca-pipeline/ and <project-root>/orca-pipeline.yaml into .orca-pod/: MOVED/IGNORED/SKIP lines joined by \n, or null.
     migration: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    profileUpgrade: Type.Optional(Type.Object({ status: Type.String(), kept: Type.Array(Type.String()), archived: Type.Array(Type.String()), backupPath: Type.Optional(Type.String()) })),
     yaml: Type.Optional(Type.String()),
     settings: Type.Optional(Type.Object({
       activeProfile: Type.String(),
@@ -69,20 +60,6 @@ function formOutputSchema(Type) {
     error: Type.Optional(Type.String()),
   });
 }
-
-function askQuestionSchema(Type) {
-  const AskOption = Type.Object({ label: Type.String(), description: Type.Optional(Type.String()) });
-  return Type.Object({
-    question: Type.String({ description: 'The full question, about the matter itself' }),
-    header: Type.String({ description: 'Tab label, up to 12 characters, e.g. "3 Rollback"' }),
-    context: Type.Optional(Type.String({ description: 'The card (situation, proposal, cost) shown above the question, up to 600 characters' })),
-    options: Type.Array(AskOption, { description: '2-4 options; the free answer "Type something." is added automatically' }),
-  });
-}
-
-// The question window needs a terminal UI. ctx.mode exists since Pi 0.78; older Pi has only hasUI, which is also true in RPC
-// (there ctx.ui.custom returns undefined, and the call ends as interrupted).
-const hasTerminalUi = (ctx) => (ctx.mode === undefined ? ctx.hasUI === true : ctx.mode === 'tui');
 
 async function readExistingConfig(file) {
   try {
@@ -133,60 +110,25 @@ function toolResult(data) {
       aborted: 'The setup was interrupted.',
       error: 'Form error: ' + (data.error || 'unknown error'),
     }[data.status];
-    text = reason + ' The configuration is unchanged. Do not create a YAML from default values.';
+    text = reason + (data.profileUpgrade?.status === 'upgraded'
+      ? ' The form did not make further changes. Do not create a YAML from default values.'
+      : ' The configuration is unchanged. Do not create a YAML from default values.');
   }
   // The migration happens before the form opens, so it is reported whatever the outcome.
   if (data.migration) text = 'Config migration:\n' + data.migration + '\n— tell the user briefly (one line per result).\n' + text;
+  if (data.profileUpgrade?.status === 'upgraded') {
+    const { kept, archived, backupPath } = data.profileUpgrade;
+    text = `Profile upgrade: retained ${kept.join(', ')}; archived ${archived.join(', ')}; full backup ${backupPath}.\n` + text;
+  }
   return { content: [{ type: 'text', text }], details: data, structuredContent: data };
 }
 
-const askToolResult = (data) => ({ content: [{ type: 'text', text: askResultText(data) }], details: data });
-
-export default async function (pi) {
-  const [{ Type, getSupportedThinkingLevels }, { defineTool }, { Editor, Key, matchesKey, visibleWidth, wrapTextWithAnsi }] = await Promise.all([
-    importPiPackage('pi-ai'), importPiPackage('pi-coding-agent'), importPiPackage('pi-tui'),
-  ]);
-  const TUI_KIT = { Editor, Key, matchesKey, visibleWidth, wrapTextWithAnsi };
-  const AskQuestion = askQuestionSchema(Type);
-  // Resources start only in execute(), never while loading the extension.
+export default function (pi) {
   const activeForms = new Set();
-  const activeAsks = new Set();
   pi.on('session_shutdown', () => {
-    for (const controller of [...activeForms, ...activeAsks]) controller.abort();
+    for (const controller of activeForms) controller.abort();
     activeForms.clear();
-    activeAsks.clear();
   });
-
-  // The question window of the plan-blitz skill in Pi (Claude Code has AskUserQuestion, Codex request_user_input).
-  pi.registerTool(defineTool({
-    name: 'orca_pod_ask',
-    label: 'Ask the user',
-    description: 'Ask the user 1-4 multiple-choice questions in a terminal window like Claude Code AskUserQuestion: a tab per question, options with descriptions, a free "Type something." answer, Submit; Esc cancels. An optional per-question context (up to 600 characters) is shown above the question: put the plan-blitz card there. Used by the plan-blitz skill. Returns one line per question: selected "<label>" or wrote "<text>".',
-    promptSnippet: 'Ask the user multiple-choice questions in a terminal window (plan-blitz).',
-    parameters: Type.Object({ questions: Type.Array(AskQuestion, { description: '1-4 questions' }) }),
-    exposure: 'model-only',
-    executionMode: 'sequential',
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const parsed = normalizeAskParams(params);
-      if (!parsed.ok) return askToolResult({ reason: 'invalid', error: parsed.error });
-      // print/json have no UI; in rpc ctx.ui.custom returns undefined.
-      if (!hasTerminalUi(ctx)) return askToolResult({ reason: 'no-ui', mode: ctx.mode ?? 'without UI' });
-      const controller = new AbortController();
-      const onAbort = () => controller.abort();
-      signal?.addEventListener('abort', onAbort, { once: true });
-      if (signal?.aborted) controller.abort();
-      activeAsks.add(controller);
-      try {
-        const result = await ctx.ui.custom((tui, theme, _keybindings, done) => createAskComponent({
-          questions: parsed.questions, tui, theme, kit: TUI_KIT, signal: controller.signal, done,
-        }));
-        return askToolResult(result ?? { answers: [], cancelled: true, reason: 'aborted' });
-      } finally {
-        signal?.removeEventListener('abort', onAbort);
-        activeAsks.delete(controller);
-      }
-    },
-  }));
 
   pi.registerTool(defineTool({
     name: 'orca_pod_setup',
@@ -213,11 +155,12 @@ export default async function (pi) {
       let targetPath = '';
       let sourceHash = null;
       let migration = null;
+      let profileUpgrade;
       let git;
-      const cancelledResult = () => toolResult({ status: 'aborted', targetPath, git, sourceHash, migration, url: form?.url || '' });
+      const cancelledResult = () => toolResult({ status: 'aborted', targetPath, git, sourceHash, migration, profileUpgrade, url: form?.url || '' });
       try {
         if (controller.signal.aborted) return cancelledResult();
-        const { startPipelineForm, discoverCatalogs, location: configModule } = await loadSetupScripts();
+        const { startPipelineForm, discoverCatalogs, location: configModule, upgradeProfiles } = await loadSetupScripts();
         // Git is optional: outside a repository the config goes into the current folder (or its nearest parent with .orca-pod/).
         const location = configModule.configLocation(configModule.projectLocation(ctx.cwd));
         git = location.git;
@@ -226,7 +169,11 @@ export default async function (pi) {
         migration = configModule.migrationText(configModule.migrateLegacyConfig(location));
         const root = location.worktreeRoot;
         targetPath = location.activePath; // migrateLegacyConfig has already recomputed it: a migrated worktree file wins over the shared one
-        const current = await readExistingConfig(targetPath);
+        let current = await readExistingConfig(targetPath);
+        if (current.hash !== null) {
+          profileUpgrade = upgradeProfiles(targetPath);
+          if (profileUpgrade.status === 'upgraded') current = await readExistingConfig(targetPath);
+        }
         sourceHash = current.hash;
         // Reload local configuration only. No AI sessions, paid probes or catalog network refresh.
         await ctx.modelRegistry.refresh({ allowNetwork: false, signal: controller.signal });
@@ -239,9 +186,9 @@ export default async function (pi) {
         // The Anthropic catalog from the session registry (the same one claude-bridge uses) — specific versions for Claude Code.
         const anthropicModels = ctx.modelRegistry.getAll().filter((model) => model.provider === 'anthropic')
           .map((model) => ({ id: model.id, levels: getSupportedThinkingLevels(model) }));
-        const { models, sources } = await discoverCatalogs({ cwd: root, piModels, anthropicModels });
+        const { models, sources, providers } = await discoverCatalogs({ cwd: root, piModels, anthropicModels });
         form = await startPipelineForm({
-          models, sources, currentYaml: params.current_yaml ?? current.text, targetPath,
+          models, sources, providers, currentYaml: params.current_yaml ?? current.text, targetPath, profileUpgrade,
           timeout: params.timeout ?? 900, signal: controller.signal,
         });
         if (controller.signal.aborted) return cancelledResult();
@@ -259,7 +206,7 @@ export default async function (pi) {
         // Browser POST resolves this Promise and Pi resumes the agent automatically.
         const outcome = await form.result;
         if (outcome.status === 'error') throw new Error(outcome.error);
-        return toolResult({ ...outcome, targetPath, git, sourceHash, migration });
+        return toolResult({ ...outcome, targetPath, git, sourceHash, migration, profileUpgrade });
       } catch (error) {
         if (controller.signal.aborted) return cancelledResult();
         throw error;

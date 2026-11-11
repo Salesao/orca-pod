@@ -18,6 +18,18 @@ export const LANGUAGES = ['en', 'ru'];
 
 export const MESSAGES = {
   en: {
+    'manual.button': 'Enter model ID',
+    'manual.prompt': 'Enter the exact model ID. The local catalog is incomplete.',
+    'manual.selected': '{id} (manual)',
+    'manual.invalid': 'Enter a valid model ID.',
+    'custom.button': 'Add custom helper',
+    'custom.prompt': 'Enter the name of an installed native helper.',
+    'custom.invalid': 'Choose a valid, unique specialization name.',
+    'limits.profiles': 'The configuration supports up to {max} profiles.',
+    'limits.helpers': 'Choose up to {max} helper specializations.',
+    'limits.legacyHelper': 'Update the retired {name} specialization and choose which settings to keep.',
+    'limits.upgraded': 'Retained: {kept}. Archived: {archived}. Full backup: {backup}.',
+
     // ── page, header, toggle ──
     'page.title': 'Orca pipeline — setup',
     'skip.roles': 'Skip to roles',
@@ -49,9 +61,9 @@ export const MESSAGES = {
     'profile.max.label': 'Concurrent subagents',
     'profile.max.help': 'How many subagents one role runs at the same time: from 1 to {max}, {defaultValue} by default. This is not a counter: more can run in total during a run.',
     'fullAccess.label': 'Full access',
-    'fullAccess.help': 'Yolo: roles in Codex and Claude Code start without confirmations and without a sandbox — the agent runs any command and changes any file on the machine without asking. Pi and OMP are unaffected.',
-    'fullAccess.on': 'yes — Codex and Claude Code run without confirmations or a sandbox',
-    'fullAccess.off': 'no — agents ask for confirmation as usual',
+    'fullAccess.help': 'Coordinator launches use each provider’s supported YOLO mode. This setting controls direct launches outside the Coordinator.',
+    'fullAccess.on': 'yes — direct launches also request YOLO',
+    'fullAccess.off': 'no — direct launches use provider defaults',
     'profile.default.label': 'Default profile',
     'profile.default.yes': 'yes — the Coordinator offers it first',
     'profile.default.no': 'no — turn on to make it the default profile',
@@ -211,6 +223,18 @@ export const MESSAGES = {
   },
 
   ru: {
+    'manual.button': 'Ввести ID модели',
+    'manual.prompt': 'Введите точный ID модели. Локальный каталог неполон.',
+    'manual.selected': '{id} (ручной ввод)',
+    'manual.invalid': 'Введите допустимый ID модели.',
+    'custom.button': 'Добавить своего помощника',
+    'custom.prompt': 'Введите имя установленного нативного помощника.',
+    'custom.invalid': 'Введите допустимое уникальное имя специализации.',
+    'limits.profiles': 'В настройках может быть до {max} профилей.',
+    'limits.helpers': 'Выберите до {max} специализаций помощников.',
+    'limits.legacyHelper': 'Замените устаревшую специализацию {name} и выберите, какие настройки сохранить.',
+    'limits.upgraded': 'Оставлены: {kept}. В архиве: {archived}. Полная копия: {backup}.',
+
     // ── page, header, toggle ──
     'page.title': 'Orca pipeline — настройка',
     'skip.roles': 'Перейти к ролям',
@@ -242,9 +266,9 @@ export const MESSAGES = {
     'profile.max.label': 'Субагентов одновременно',
     'profile.max.help': 'Сколько субагентов одна роль запускает одновременно: от 1 до {max}, по умолчанию {defaultValue}. Это не счётчик: всего за прогон их может быть больше.',
     'fullAccess.label': 'Полные права',
-    'fullAccess.help': 'Yolo: роли в Codex и Claude Code запускаются без подтверждений и без sandbox — агент выполняет любые команды и меняет любые файлы на машине, не спрашивая. Pi и OMP не меняются.',
-    'fullAccess.on': 'да — Codex и Claude Code работают без подтверждений и sandbox',
-    'fullAccess.off': 'нет — агенты спрашивают подтверждения, как обычно',
+    'fullAccess.help': 'Координатор использует поддерживаемый провайдером YOLO. Эта настройка действует при прямом запуске роли без координатора.',
+    'fullAccess.on': 'да — прямой запуск также запрашивает YOLO',
+    'fullAccess.off': 'нет — прямой запуск использует настройки провайдера',
     'profile.default.label': 'Профиль по умолчанию',
     'profile.default.yes': 'да — Coordinator предложит его первым',
     'profile.default.no': 'нет — включи, чтобы сделать профилем по умолчанию',

@@ -69,7 +69,7 @@ function runLauncher(yaml, args) {
 }
 
 test("prefill: an empty file — one profile named default on Pi with the limit 6", () => {
-  assert.deepEqual(prefill(""), { activeProfile: "default", language: "auto", profiles: [{ name: "default", defaultProvider: "pi", maxSubagents: 6, fullAccess: false, roles: {} }] });
+  assert.deepEqual(prefill(""), { activeProfile: "default", language: "auto", profiles: [{ name: "default", defaultProvider: "pi", maxSubagents: 6, fullAccess: true, roles: {} }] });
 });
 
 test("prefill: the old format with a root default_provider", () => {
@@ -292,7 +292,7 @@ test("Codex: inherit and a compatible model are accepted, an effort outside the 
 
 test("Codex: lens-checker is rejected", () => {
   const errors = validateServer(codexSettings([{ name: "lens-checker", model: "inherit", thinking: "inherit" }]), MODELS);
-  assert.deepEqual(errors, ["cx/implementer: lens-checker exists only in Pi (pi-lens)"]);
+  assert.deepEqual(errors, ["cx/Update the retired lens-checker specialization and choose which settings to keep."]);
 });
 
 test("buildYaml: a Codex profile with ultra passes parsePipelineYaml + resolveProfile", () => {
@@ -447,3 +447,28 @@ test("setup-form.mjs: the browser cannot be opened → an English hint on stderr
   assert.match(result.stderr, /^FORM URL: http:\/\/localhost:\d+\/\?t=/m);
   assert.match(result.stderr, /^The browser did not open automatically — open the link manually\.$/m);
 }));
+
+test("direct POST refuses four profiles and allows a manual Qoder ID only with proven default reasoning", async () => {
+  const providers = [{
+    id: "qoder", available: true, catalogStatus: "unavailable",
+    capabilities: { reasoning: { kind: "provider-default" } },
+  }];
+  const form = await startPipelineForm({ models: MODELS, providers, timeout: 30 });
+  try {
+    const url = new URL(form.url);
+    const post = (body) => fetch(url.origin + "/generate" + url.search, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    const oversized = settings();
+    oversized.profiles.push({ ...oversized.profiles[0], name: "three" }, { ...oversized.profiles[0], name: "four" });
+    assert.equal((await post(oversized)).status, 400);
+    const selection = settings();
+    selection.profiles[0].roles.planner = role("qoder:manual-model", "ultra", { provider: "qoder" });
+    assert.equal((await post(selection)).status, 400);
+    selection.profiles[0].roles.planner.thinking = "default";
+    assert.equal((await post(selection)).status, 200);
+    const { settings: accepted, yaml } = await form.result;
+    assert.equal(accepted.profiles[0].roles.planner.modelSource, "manual");
+    assert.match(yaml, /provider: qoder\n\s+model: manual-model\n\s+thinking: default/);
+  } finally { form.close(); }
+});

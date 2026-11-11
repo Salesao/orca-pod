@@ -48,36 +48,29 @@ In Codex run this script, `link-pi-extension.sh` below and `setup-form.mjs` (ste
 from the first call (Codex asks the user once per command): the link scripts write into `~/.claude` and `~/.pi`,
 outside the project, so in the sandbox they fail with `Operation not permitted`.
 
-It links `agents/claude/*.md` → `~/.claude/agents/` and `agents/pi/*.md`
-(lens-checker, verifier and the `orca-*` helpers) → `~/.pi/agent/agents/`. Show the `SKIP` and `RELINK` lines to the
+It links native definitions for Claude Code, Pi and OMP to their user agent directories. Show the `SKIP` and `RELINK` lines to the
 user. `SKIP`: an existing agent with the same name that is not from this skill (a regular file or a live
 link, for example into another installed skill version) stays, and the pipeline will use it.
 `RELINK`: a dangling link (it pointed into an older skill version that was removed) was replaced with a
 link to this skill; this changes a link on the user's machine, so the user should see it.
 `UNLINK` lines mean that broken links to agents that no longer exist in the skill were
 removed (for example the former `courier`).
-In Pi the pipeline runs worker, reviewer, scout, oracle and evidence-auditor as these
-`orca-<name>` agents: they start without the user's Pi extensions, so without pi-lens and
-its tsserver per child (orca-pod SKILL.md, the pi-lens budget). Only `researcher` is the
-bundled pi-subagents agent. The Codex agents (`agents/codex/*.toml`, names
-`orca_*`) are not linked: the launcher registers them when it starts a role, only in that
-role's session.
+The launcher supplies selected helper definitions and role policy at startup.
+The linker includes OMP's native definitions. Pi helper sessions inherit the
+parent's registered providers and exclude ambient diagnostic extensions.
 
-Then connect the Pi extension (idempotent; does nothing when Pi is not installed: no `pi` in PATH and no `~/.pi/agent`). It gives Pi two
-tools: `orca_pod_setup` (this form) and `orca_pod_ask` (the question window of the plan-blitz skill,
-which the orca-pod Planner runs before every approval):
+Link the Pi setup extension:
 
 ```bash
 <skill-dir>/scripts/link-pi-extension.sh
 ```
 
-It points `~/.pi/agent/extensions/orca-pod-setup` at `<skill-dir>/pi-extension`
-and does not replace an existing directory or a link that is not ours (a `SKIP` line — show it to the
-user). The extension works with Pi before and after 0.74, when Pi renamed its packages from `@mariozechner/*` to
-`@earendil-works/*`: it loads each package by the new name and falls back to the old one. A `LINK` line means that the extension has just been connected: Pi
-needs `/reload`, and only then call `orca_pod_setup`. A `STALE` line means that an old
-copy of the extension lies there instead of a link, and the form in Pi does not work with it: show the
-user the fix command from the output and do not call the tool until `/reload`.
+It provides only `orca_pod_setup`. Run `/reload` after a new link. Existing
+foreign links are preserved and reported. The question window is the independent
+`pi-task` package. To use it, install with `pi install /absolute/path/to/pi-task`
+from a local checkout and reload Pi. Missing pi-task does not block setup or
+planning. Use an already installed legacy `orca_pod_ask` or numbered text.
+Setup does not install pi-task.
 
 ## 3. Choose the path for the current agent
 
@@ -103,7 +96,7 @@ the tool's pending Promise: the answer appears in the result of the call.
 The form: **profiles** are tabs; "Add profile" creates a copy of the current one. A
 profile has a name, the "Default profile" mark (`active_profile`), a **default agent**
 (`default_provider`), **concurrent subagents** (`max_subagents`,
-1–100, 6 by default), **full access** (`full_access`, off by default) and
+1–100, 6 by default), **full access** (`full_access`, on for newly created profiles; direct launches only) and
 "Delete profile" (the last profile cannot be deleted). For each
 role of the profile there is **its own agent** ("default" / Pi / Claude Code / Codex), the model,
 thinking, `use_subagents` and the helper subagents with `inherit`. The model catalogs
@@ -132,12 +125,10 @@ new file does not have them, the form adds them with the "Add …" button and re
 `reviewer`, `chief` or `self` — the Implementer's self-check without reviewers). A role that
 was not added is not written to the YAML.
 
-The model of a role and of its helpers comes only from the role's agent; `lens-checker` exists only
-in Pi. Codex helpers can use any model from the Codex catalog and `inherit`: the role
+The model of a role and its helpers comes from the role's provider. Codex helpers can use any model from the Codex catalog and `inherit`: the role
 starts them with `agent_type`, and Codex takes the model that is passed. Claude Code subagents get only an alias or inherit: the `Agent` tool does not accept a
 full id; a specific version is available only to the role itself (`claude --model`). Changing the role's agent or the default resets incompatible models. In the YAML each
-profile gets `default_provider` and `max_subagents`, `full_access: true` only when
-full access is enabled, and `provider:` only
+profile gets `default_provider`, `max_subagents` and the selected `full_access` value. It includes `provider:` only
 for the roles whose agent differs from the profile's default. The catalog sources are shown in the form header.
 
 Continue **only if `status: submitted`**. The result: `yaml` (the whole file),
@@ -182,7 +173,7 @@ example of Claude Code roles from the [template](../orca-pod/assets/orca-pod.yam
 and in one AskUserQuestion ask for the profile name, the agent per role, the subagent limit
 (6 by default, up to 100) and whether to apply the recommendation;
 the Claude models are the aliases `opus`/`sonnet`/`haiku`/`fable`, and the
-helpers of a claude-code role get only `inherit` or an alias, without `lens-checker`.
+helpers of a claude-code role get only `inherit` or an alias.
 
 ## 4. Save the file and validate
 
@@ -205,13 +196,9 @@ node <skill-dir>/../orca-pod/scripts/launch-provider.mjs --profiles
 The command checks every profile: all must be `valid: true`. For each
 profile tell the user its `summary` (roles, review mode, subagent limit).
 
-The Codex rule for Orca — now that the roles are chosen: it is needed if the `--profiles` output has a role with
-`provider: codex` in a profile with `fullAccess: false` (with
-`full_access: true` the Codex sandbox is off and the rule is not needed). In the Codex sandbox
-`orca` commands (except those allowed by a rule) fail with `runtime_access_denied`.
-Look for `prefix_rule(pattern=["orca"])` in `~/.codex/rules/*.rules`. If it is not there, ask one question:
-"Allow all orca commands in Codex without confirmation? The line prefix_rule(pattern=["orca"], decision="allow")
-will be added to ~/.codex/rules/default.rules". Add the line only after the user says "yes"; on "no", say that Codex roles will ask for confirmation of `orca` commands.
+Coordinator-launched roles request each provider's supported YOLO mode with
+`--coordinator`. The Full access toggle applies to direct role launches. Setup
+does not modify global permission rules for the Coordinator workflow.
 
 Then add the pipeline's service folder to the project's `.gitignore` (idempotent; skip this step when the
 result has `git: false`):
@@ -237,10 +224,10 @@ For each profile (mark the default profile and the subagent limit) — a table
 "role → agent → model → thinking → use_subagents → helpers"; the path to the file, the
 result of link-agents and a reminder: the pipeline has not been run yet. If there are several
 profiles, the Coordinator will ask at launch which one to use.
-For roles on Claude Code and Codex in profiles without `full_access`, remind the user: the role's terminal will ask
-permission questions if the project/user permissions do not cover them
-(`orca terminal send`, git reads, the Implementer's edits); on the first launch in a new
-folder the role's agent will ask whether to trust it.
+Summarize the three-profile and three-specialization caps and the independent
+concurrency setting. Show the retained and archived profiles and the backup path
+when upgraded, even if the form is cancelled. Open the backup to recover any
+three profiles, select an active one, validate and save that set.
 
 ## Fallback without the form in Pi
 
@@ -252,5 +239,5 @@ Choosing helpers and models — [discovery-and-recommendations.md](references/di
 
 - Do not run roles, providers, Orca Run or subagents.
 - Do not edit the YAML by hand instead of using the form, except on an explicit, narrowly scoped request.
-- Do not set `full_access: true` yourself or offer it as a way around a sandbox or confirmation refusal — only at the user's explicit request (see [references/settings.md](references/settings.md)).
+- Save the direct-launch access setting submitted through the form.
 - Do not write tests and do not run checks beyond `--profiles`/`--validate`/`--resolve`.

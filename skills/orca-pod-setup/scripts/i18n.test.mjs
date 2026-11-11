@@ -207,7 +207,7 @@ for (const [label, build, expected] of [
     "cx/implementer/worker: thinking ultra недоступен для модели субагента", // ru-fixture
   ]],
   ["Codex lens-checker", () => codexSettings([{ name: "lens-checker", model: "inherit", thinking: "inherit" }]), [
-    "cx/implementer: lens-checker есть только в Pi (pi-lens)", // ru-fixture
+    "cx/Замените устаревшую специализацию lens-checker и выберите, какие настройки сохранить.", // ru-fixture
   ]],
 ]) {
   test(`validateServer in Russian: ${label}`, () => {
@@ -253,7 +253,7 @@ test("validateServer: every server message exists in both languages, fills its p
     (s) => { s.profiles[0].roles.planner = role("claude-code:opus", "high"); },
     (s) => { s.profiles[0].roles.planner.thinking = "xhigh"; },
     (s) => { s.profiles[0].roles.planner.useSubagents = "yes"; },
-    (s) => { s.profiles[0].roles.planner.useSubagents = true; s.profiles[0].roles.planner.subagents = []; },
+    (s) => { s.profiles[0].roles.planner.useSubagents = true; s.profiles[0].roles.planner.subagents = {}; },
     (s) => { s.profiles[0].roles.planner = role("pi:zai/glm-5.3-flash", "high", [sub("Bad Name")]); },
     (s) => { s.profiles[0].roles.planner = role("pi:zai/glm-5.3-flash", "high", [sub("scout"), sub("scout")]); },
     (s) => { s.profiles[0].roles.planner = role("pi:zai/glm-5.3-flash", "high", [sub("scout", "pi:nope/x")]); },

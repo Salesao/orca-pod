@@ -111,7 +111,7 @@ The pipeline helpers for Claude Code are the agents of the skill `orca-pod/agent
 `verifier`), linked by `scripts/link-agents.sh` into `~/.claude/agents/`. The names
 match Pi's, so one YAML key works in both programs. The project's
 `.claude/agents/` with the same name override the user's — say so.
-There is no `lens-checker` in Claude Code (no pi-lens). The built-in `Explore`/`Plan`/
+The built-in `Explore`/`Plan`/
 `general-purpose` do not fit as YAML keys (case) and the pipeline does not use them.
 
 Models: the alias `opus`/`sonnet`/`haiku`/`fable` or a full id from the current session,
@@ -150,7 +150,7 @@ Match the available definitions to the needs of the task, not only to the name:
   worker per independent TODO; `scout`/`researcher` — for clarifications. The worker's
   model is the workhorse (often `inherit`), not the most expensive.
 - Reviewer — an independent Orca terminal; it needs a read-only `reviewer` for the
-  parallel lanes of the batch review and, in Pi, `lens-checker`. The lane model may
+  parallel review lanes and the planned checks. The lane model may
   be cheaper than the Reviewer's own: the decision and classification stay with it.
 - Chief Reviewer — `reviewer` lanes on a strong model and `evidence-auditor`.
 - A native `reviewer` of any role is a lane, not a replacement for the terminal Reviewer/Chief.
@@ -207,3 +207,13 @@ user additionally assigned research,
 save it as an explicit requirement of the current task and pass it to the Coordinator for the plan.
 In the YAML write only existing fields: `use_subagents`, `subagents`, `model`,
 `thinking`. Do not add the non-existent `enabled`, `required` or `review_loop`.
+
+
+## Qoder and OMP
+
+Discover Qoder with `qodercli --list-models` and OMP with `omp models --json`.
+Record whether the list is complete and where each model came from. Use the
+provider-managed reasoning default when model-specific effort metadata is
+unavailable. Accept a manual model ID for an installed Qoder or OMP with a
+missing or partial catalog. Keep availability, model selection, permissions
+and helper policy separate.

@@ -11,8 +11,9 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { t } from './form/i18n.mjs';
+import { isManualModelId } from '../../orca-pod/scripts/provider-capabilities.mjs';
 // One config schema for the launcher and the form: the parser, the profile name rule and the subagent limit bounds.
-import { isValidLanguage, LANGUAGE_DEFAULT, LANGUAGE_PATTERN, MAX_SUBAGENTS_DEFAULT, MAX_SUBAGENTS_LIMIT, parsePipelineYaml, PROFILE_NAME_PATTERN, ROLE_AGENTS } from '../../orca-pod/scripts/pipeline-config.mjs';
+import { isValidLanguage, LANGUAGE_DEFAULT, LANGUAGE_PATTERN, MAX_PROFILES, MAX_ROLE_SPECIALIZATIONS, MAX_SUBAGENTS_DEFAULT, MAX_SUBAGENTS_LIMIT, parsePipelineYaml, PROFILE_NAME_PATTERN, ROLE_AGENTS } from '../../orca-pod/scripts/pipeline-config.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROLE_KEYS = ['planner', 'implementer', 'reviewer', 'chief_reviewer'];
@@ -22,18 +23,18 @@ const REQUIRED_ROLE_KEYS = ['planner', 'implementer'];
 // Role agents (provider) that the launcher accepts. The model catalogs are in scripts/catalogs.mjs;
 // the form shows only agents that have a catalog (see ENABLED_PROGRAMS in catalogs.mjs).
 // A model key in the form: '<program>:<model value in the YAML>' (for Pi the value is 'provider/id').
-export const PROGRAMS = { pi: 'Pi', 'claude-code': 'Claude Code', codex: 'Codex', omp: 'OMP' };
+export const PROGRAMS = { pi: 'Pi', 'claude-code': 'Claude Code', codex: 'Codex', omp: 'OMP', qoder: 'Qoder' };
 export const modelKeyOf = (m) => m.program + ':' + (m.program === 'pi' ? m.provider + '/' + m.id : m.id);
 const keyProgram = (key) => { const s = String(key || ''); const i = s.indexOf(':'); return i < 0 ? '' : s.slice(0, i); };
 const keyValue = (key) => { const s = String(key || ''); return s.slice(s.indexOf(':') + 1); };
-const canonicalProgram = (value) => (value === 'claude' ? 'claude-code' : value || '');
+const canonicalProgram = (value) => (value === 'claude' ? 'claude-code' : value === 'qodercli' ? 'qoder' : value || '');
 
 const isMap = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const text = (value) => (typeof value === 'string' ? value.trim() : '');
 const emptyPrefill = (defaultProvider = 'pi') => ({
   activeProfile: 'default',
   language: LANGUAGE_DEFAULT,
-  profiles: [{ name: 'default', defaultProvider, maxSubagents: MAX_SUBAGENTS_DEFAULT, fullAccess: false, roles: {} }],
+  profiles: [{ name: 'default', defaultProvider, maxSubagents: MAX_SUBAGENTS_DEFAULT, fullAccess: true, roles: {} }],
 });
 
 // There can be several profiles: the form shows all of them (tabs) and returns the whole file.
@@ -85,11 +86,17 @@ export function prefill(source = '') {
 // ── server-side validation: the same rules as in the form ──
 // Messages come from the srv.* keys of form/i18n.mjs in the language lang ('en' by default, the form sends its own language).
 // Always returns an array of strings; keys and params do not leave the server.
-export function validateServer(d, models, lang = 'en') {
+export function validateServer(d, models, lang = 'en', providers = []) {
   const say = (key, params) => t(lang, key, params);
   if (!isMap(d)) return [say('srv.notObject')];
   if (!Array.isArray(d.profiles) || !d.profiles.length) return [say('srv.noProfiles')];
+  if (d.profiles.length > MAX_PROFILES) return [say('limits.profiles', { max: MAX_PROFILES })];
   const byKey = new Map(models.map((m) => [modelKeyOf(m), m]));
+  const manual = new Set(providers.filter(({ id, available, catalogStatus, capabilities }) =>
+    available && ['qoder', 'omp'].includes(id) && catalogStatus !== 'available' && capabilities?.reasoning.kind !== 'unknown').map(({ id }) => id));
+  const lookup = (key, program) => typeof key === 'string' && keyProgram(key) === program
+    ? byKey.get(key) ?? (manual.has(program) && isManualModelId(keyValue(key)) ? { id: keyValue(key), levels: ['default'], source: 'manual' } : null)
+    : byKey.get(key);
   const errs = [];
   // No field (an old client) means auto, as in the launcher; if the field is there it must be auto or a language tag.
   if (d.language !== undefined && !isValidLanguage(d.language)) errs.push(say('srv.language'));
@@ -108,13 +115,13 @@ export function validateServer(d, models, lang = 'en') {
     if (profile.fullAccess !== undefined && typeof profile.fullAccess !== 'boolean') errs.push(say('srv.profile.fullAccess', { label }));
     if (!PROGRAMS[profile.defaultProvider]) { errs.push(say('srv.profile.provider', { label, agent: profile.defaultProvider })); return; }
     const prefix = (name || say('srv.profile.prefix', { n: index + 1 })) + '/';
-    errs.push(...validateRoles(profile, byKey, say).map((error) => prefix + error));
+    errs.push(...validateRoles(profile, lookup, say).map((error) => prefix + error));
   });
   if (!names.has(d.activeProfile)) errs.push(say('srv.activeProfile', { name: d.activeProfile }));
   return errs;
 }
 
-function validateRoles(d, byKey, say) {
+function validateRoles(d, lookup, say) {
   const errs = [];
   for (const key of ROLE_KEYS) {
     const r = d.roles && d.roles[key];
@@ -122,21 +129,24 @@ function validateRoles(d, byKey, say) {
     if (!r) { if (REQUIRED_ROLE_KEYS.includes(key)) errs.push(say('srv.role.required', role)); continue; }
     if (r.provider && !PROGRAMS[r.provider]) { errs.push(say('srv.role.unknownAgent', { ...role, agent: r.provider })); continue; }
     const program = r.provider || d.defaultProvider;
-    const m = byKey.get(r.model);
+    const m = lookup(r.model, program);
     if (!m) { errs.push(say('srv.role.unknownModel', { ...role, model: r.model })); continue; }
     if (keyProgram(r.model) !== program) { errs.push(say('srv.role.modelUnavailable', { ...role, model: keyValue(r.model), agent: program })); continue; }
     if (!m.levels.includes(r.thinking)) errs.push(say('srv.role.thinking', { ...role, thinking: r.thinking, model: keyValue(r.model) }));
     if (typeof r.useSubagents !== 'boolean') errs.push(say('srv.role.useSubagents', role));
-    if (!r.useSubagents) continue;
-    if (!Array.isArray(r.subagents) || !r.subagents.length) { errs.push(say('srv.role.noSubagents', role)); continue; }
+    if (r.subagents === undefined || (Array.isArray(r.subagents) && !r.subagents.length)) continue; // omitted YAML uses defaults
+    if (!Array.isArray(r.subagents)) { errs.push(say('srv.role.noSubagents', role)); continue; }
+    if (r.subagents.length > MAX_ROLE_SPECIALIZATIONS) errs.push(say('limits.helpers', { max: MAX_ROLE_SPECIALIZATIONS }));
     const seen = new Set();
     for (const sa of r.subagents) {
       if (!sa || typeof sa.name !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(sa.name)) { errs.push(say('srv.sub.badName', role)); continue; }
       const sub = { ...role, name: sa.name };
       if (seen.has(sa.name)) errs.push(say('srv.sub.duplicate', sub));
       seen.add(sa.name);
-      if (sa.name === 'lens-checker' && program !== 'pi') { errs.push(say('srv.sub.lensPi', role)); continue; }
-      const em = sa.model === 'inherit' ? m : byKey.get(sa.model);
+      if (sa.name === 'lens-checker' || (key === 'implementer' && sa.name === 'researcher')) {
+        errs.push(say('limits.legacyHelper', { name: sa.name })); continue;
+      }
+      const em = sa.model === 'inherit' ? m : lookup(sa.model, program);
       if (!em) { errs.push(say('srv.sub.unknownModel', { ...sub, model: sa.model })); continue; }
       if (sa.model !== 'inherit' && keyProgram(sa.model) !== program) { errs.push(say('srv.sub.modelUnavailable', { ...sub, agent: program })); continue; }
       if (sa.model !== 'inherit' && em.roleOnly) { errs.push(say('srv.sub.aliasOnly', sub)); continue; }
@@ -159,7 +169,7 @@ export function buildYaml(d) {
   d.profiles.forEach((p, index) => {
     if (index) L.push('');
     L.push('  ' + p.name + ':', '    default_provider: ' + p.defaultProvider, '    max_subagents: ' + p.maxSubagents);
-    if (p.fullAccess === true) L.push('    full_access: true');
+    if (typeof p.fullAccess === 'boolean') L.push('    full_access: ' + p.fullAccess);
     L.push('    roles:');
     for (const key of ROLE_KEYS) {
       const r = p.roles[key];
@@ -167,7 +177,7 @@ export function buildYaml(d) {
       L.push('      ' + key + ':');
       if (r.provider && r.provider !== p.defaultProvider) L.push('        provider: ' + r.provider);
       L.push('        model: ' + keyValue(r.model), '        thinking: ' + r.thinking, '        use_subagents: ' + (r.useSubagents ? 'true' : 'false'));
-      if (r.useSubagents && r.subagents.length) {
+      if (r.subagents?.length) {
         L.push('        subagents:');
         for (const sa of r.subagents) L.push('          ' + sa.name + ':', '            model: ' + (sa.model === 'inherit' ? 'inherit' : keyValue(sa.model)), '            thinking: ' + sa.thinking);
       }
@@ -177,7 +187,8 @@ export function buildYaml(d) {
 }
 
 // Only the fields the pipeline uses — no extra request content.
-function pickSettings(submitted) {
+function pickSettings(submitted, models) {
+  const listed = new Set(models.map(modelKeyOf));
   return {
     activeProfile: submitted.activeProfile,
     language: submitted.language ?? LANGUAGE_DEFAULT,
@@ -188,7 +199,8 @@ function pickSettings(submitted) {
         if (!r) continue;
         roles[role] = {
           provider: r.provider || '', model: r.model, thinking: r.thinking, useSubagents: r.useSubagents,
-          subagents: r.useSubagents ? r.subagents.map((s) => ({ name: s.name, model: s.model, thinking: s.thinking })) : [],
+          ...(listed.has(r.model) ? {} : { modelSource: 'manual' }),
+          subagents: (r.subagents ?? []).map((s) => ({ name: s.name, model: s.model, thinking: s.thinking })),
         };
       }
       return { name: p.name, defaultProvider: p.defaultProvider, maxSubagents: p.maxSubagents, fullAccess: p.fullAccess === true, roles };
@@ -217,17 +229,19 @@ const CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'self'; script-sr
  * result is resolved by Submit/Cancel/abort/deadline events, never by polling.
  * The extension owns opening the browser; the form does not write files.
  */
-export async function startPipelineForm({ models, sources = [], currentYaml = '', targetPath = '', timeout = 900, signal, port = 0 }) {
-  if (!Array.isArray(models) || !models.length) throw new Error('No models are available to configure the pipeline');
+export async function startPipelineForm({ models, sources = [], providers = [], currentYaml = '', targetPath = '', profileUpgrade, timeout = 900, signal, port = 0 }) {
+  if (!Array.isArray(models) || (!models.length && !providers.some(({ available }) => available))) throw new Error('No models are available to configure the pipeline');
   if (!Number.isFinite(timeout) || timeout <= 0) throw new Error('timeout must be a positive number');
   if (signal?.aborted) return { url: '', result: Promise.resolve({ status: 'aborted', url: '' }), close() {} };
 
   const token = randomBytes(24).toString('hex');
-  const programs = Object.keys(PROGRAMS).filter((program) => models.some((m) => m.program === program))
-    .map((program) => ({ id: program, label: PROGRAMS[program], count: models.filter((m) => m.program === program).length }));
+  const availableProviders = new Map(providers.map((provider) => [provider.id, provider]));
+  const programs = Object.keys(PROGRAMS).filter((program) => models.some((m) => m.program === program) || availableProviders.get(program)?.available)
+    .map((program) => ({ id: program, label: PROGRAMS[program], manual: ['qoder', 'omp'].includes(program) && availableProviders.get(program)?.catalogStatus !== 'available' &&
+      availableProviders.get(program)?.capabilities.reasoning.kind !== 'unknown' && Boolean(availableProviders.get(program)?.available), count: models.filter((m) => m.program === program).length }));
   const data = {
-    models, programs, programLabels: PROGRAMS, sources, targetPath, roleAgents: ROLE_AGENTS, pre: prefill(currentYaml),
-    limits: { maxSubagentsDefault: MAX_SUBAGENTS_DEFAULT, maxSubagentsLimit: MAX_SUBAGENTS_LIMIT },
+    models, programs, programLabels: PROGRAMS, sources: [...sources, ...providers.flatMap(({ warning }) => warning ? [warning] : [])], targetPath, profileUpgrade, roleAgents: ROLE_AGENTS, pre: prefill(currentYaml),
+    limits: { maxProfiles: MAX_PROFILES, maxRoleSpecializations: MAX_ROLE_SPECIALIZATIONS, maxSubagentsDefault: MAX_SUBAGENTS_DEFAULT, maxSubagentsLimit: MAX_SUBAGENTS_LIMIT },
     profileNamePattern: PROFILE_NAME_PATTERN.source,
     languagePattern: LANGUAGE_PATTERN.source,
   };
@@ -307,9 +321,9 @@ export async function startPipelineForm({ models, sources = [], currentYaml = ''
       try {
         const submitted = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         // The form sends its UI language (the lang field); an unknown or missing value means English.
-        const errors = validateServer(submitted, models, submitted?.lang);
+        const errors = validateServer(submitted, models, submitted?.lang, providers);
         if (errors.length) return json(400, { error: errors.join('; ') });
-        const settings = pickSettings(submitted);
+        const settings = pickSettings(submitted, models);
         const yaml = buildYaml(settings);
         json(200, { path: targetPath, yaml });
         finish({ status: 'submitted', settings, yaml });

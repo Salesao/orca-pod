@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -31,13 +31,7 @@ function installExtension(root, scope) {
     "export const getSupportedThinkingLevels = () => ['low', 'medium', 'high'];\n");
   write(path.join(stubs, "pi-coding-agent", "package.json"), manifest);
   write(path.join(stubs, "pi-coding-agent", "index.js"), "export const defineTool = (tool) => tool;\n");
-  write(path.join(stubs, "pi-tui", "package.json"), manifest);
-  write(path.join(stubs, "pi-tui", "index.js"),
-    "export class Editor { constructor() { this.text = ''; } setText(text) { this.text = text; } handleInput() {} render() { return []; } }\n" +
-    "export const Key = { enter: 'enter', escape: 'escape', tab: 'tab', up: 'up', down: 'down', left: 'left', right: 'right', shift: (key) => 'shift+' + key };\n" +
-    "export const matchesKey = (data, key) => data === key;\n" +
-    "export const visibleWidth = (text) => text.length;\n" +
-    "export const wrapTextWithAnsi = (text) => [text];\n");
+  if (scope === "@earendil-works") symlinkSync(scope, path.join(setup, "node_modules", "@mariozechner"));
   return pathToFileURL(path.join(setup, "pi-extension", "index.js")).href;
 }
 
@@ -200,36 +194,8 @@ test("a directory instead of orca-pod.yaml is refused with an English error", ()
   await assert.rejects(tool.execute("call-1", { no_open: true }, undefined, () => {}, ctx), { message: "orca-pod.yaml must be a regular file, not a directory or a link" });
 }));
 
-// orca_pod_ask (plan-blitz in Pi): the window itself is tested in ask-tool.test.mjs; here — the registration and execute().
-const ASK = { questions: [{ question: "Keep the order of work?", header: "1 Map", options: [{ label: "Keep" }, { label: "Change" }] }] };
-
-test("the extension registers both tools: orca_pod_setup and orca_pod_ask", () => withExtension(({ tools }) => {
-  assert.deepEqual(Object.keys(tools).sort(), ["orca_pod_ask", "orca_pod_setup"]);
-}));
-
-test("orca_pod_ask outside the TUI (print, rpc) tells the agent to ask in numbered text", () => withExtension(async ({ tools, ctx }) => {
-  for (const mode of ["print", "rpc"]) {
-    const result = await tools.orca_pod_ask.execute("call-1", ASK, undefined, () => {}, { ...ctx, mode });
-    assert.equal(result.content[0].text, `No interactive terminal UI (mode ${mode}). Ask the same questions as numbered text instead.`);
-  }
-}));
-
-test("orca_pod_ask with 5 questions returns the limits instead of opening a window", () => withExtension(async ({ tools, ctx }) => {
-  const ui = { custom: () => assert.fail("no window for invalid questions") };
-  const result = await tools.orca_pod_ask.execute("call-1", { questions: Array(5).fill(ASK.questions[0]) }, undefined, () => {}, { ...ctx, mode: "tui", ui });
-  assert.match(result.content[0].text, /^Invalid questions: 5 questions \(1-4 allowed\)\. Limits: /);
-}));
-
-test("orca_pod_ask: a session_shutdown while the window is open ends the call as interrupted", () => withExtension(async ({ tools, ctx, handlers }) => {
-  let opened = false;
-  const theme = { fg: (_color, text) => text, bg: (_color, text) => text, bold: (text) => text };
-  const ui = { custom: (factory) => new Promise((resolve) => { factory({ requestRender() {} }, theme, {}, resolve); opened = true; }) };
-  const pending = tools.orca_pod_ask.execute("call-1", ASK, undefined, () => {}, { ...ctx, mode: "tui", ui });
-  for (let waited = 0; !opened && waited < 2000; waited += 10) await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.ok(opened, "the window did not open");
-  handlers.session_shutdown();
-  const result = await pending;
-  assert.equal(result.content[0].text, "The questions were interrupted before an answer. Do not treat anything as approved.");
+test("the setup extension registers only orca_pod_setup", () => withExtension(({ tools }) => {
+  assert.deepEqual(Object.keys(tools), ["orca_pod_setup"]);
 }));
 
 test("outside a Git repository the form opens for the current folder; the submitted result says so", () => withExtension(async ({ tool, ctx, project }) => {
@@ -243,16 +209,23 @@ test("outside a Git repository the form opens for the current folder; the submit
 
 // A user's Pi 0.73.1 failed to load the extension: "Cannot find module '@earendil-works/pi-ai'". Pi before 0.74 has only
 // the @mariozechner/* packages and its extension context has hasUI but no mode.
-test("Pi before 0.74 (@mariozechner/* packages, no ctx.mode): both tools register, the form opens, the question window uses hasUI", () => withExtension(async ({ tools, ctx }) => {
-  assert.deepEqual(Object.keys(tools).sort(), ["orca_pod_ask", "orca_pod_setup"]);
+test("the setup form also opens with the older Pi package namespace", () => withExtension(async ({ tools, ctx }) => {
+  assert.deepEqual(Object.keys(tools), ["orca_pod_setup"]);
   const { result, url } = await startTool(tools.orca_pod_setup, ctx);
   await post(url, "/cancel", {});
   assert.equal((await result).details.status, "cancelled");
-  const { mode, ...oldCtx } = ctx;
-  const noUi = await tools.orca_pod_ask.execute("call-1", ASK, undefined, () => {}, { ...oldCtx, hasUI: false });
-  assert.equal(noUi.content[0].text, "No interactive terminal UI (mode without UI). Ask the same questions as numbered text instead.");
-  const answers = [{ header: "1 Map", kind: "option", label: "Keep" }];
-  const ui = { custom: () => Promise.resolve({ answers, cancelled: false }) };
-  const answered = await tools.orca_pod_ask.execute("call-2", ASK, undefined, () => {}, { ...oldCtx, hasUI: true, ui });
-  assert.equal(answered.content[0].text, '1 Map: selected "Keep"');
 }, { scope: "@mariozechner" }));
+
+test("cancelling the form after automatic profile upgrade preserves the backup and the retained profiles", () => withExtension(async ({ tool, ctx, project }) => {
+  const file = path.join(project, ".orca-pod", "orca-pod.yaml");
+  const source = "active_profile: d\nprofiles:\n" + ["a", "b", "c", "d"].map((name) => `  ${name}:\n    roles:\n      planner:\n        model: zai/glm-5.3-flash\n        thinking: high\n      implementer:\n        model: zai/glm-5.3-flash\n        thinking: high\n`).join("");
+  write(file, source);
+  const form = await startTool(tool, ctx);
+  await post(form.url, "/cancel", {});
+  const { details } = await form.result;
+  assert.equal(details.status, "cancelled");
+  assert.deepEqual(details.profileUpgrade.kept, ["a", "b", "d"]);
+  assert.deepEqual(details.profileUpgrade.archived, ["c"]);
+  assert.equal(readFileSync(details.profileUpgrade.backupPath, "utf8"), source);
+  assert.doesNotMatch(readFileSync(file, "utf8"), /^  c:/m);
+}));

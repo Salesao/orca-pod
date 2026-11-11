@@ -30,18 +30,17 @@ The skill solves this with a visual form in the browser. The form takes the mode
 1. Determines the project folder: the root of the Git repository, or, outside Git, the folder where you start the agent (or its nearest parent that already has `.orca-pod/`). Does not create a repository.
 2. Connects the components that do not lie in the skill's folder. Both scripts are idempotent; they do not replace existing regular files or other people's live links and write `SKIP` instead; `link-agents.sh` replaces a dangling link (`RELINK`).
    - `orca-pod/scripts/link-agents.sh` links the helper agents to the Claude Code and Pi directories. A dangling link left by a removed skill version is replaced with ours (`RELINK`); a live link into another installed version stays (`SKIP`).
-   - `scripts/link-pi-extension.sh` points `~/.pi/agent/extensions/orca-pod-setup` at the `pi-extension/` of this skill. When Pi is not installed (no `pi` in `PATH` and no `~/.pi/agent`) it does nothing. The extension works with Pi before and after its 0.74 package rename (`@mariozechner/*` → `@earendil-works/*`). The extension also gives Pi the `orca_pod_ask` question window that the plan-blitz skill uses.
+   - `scripts/link-pi-extension.sh` points `~/.pi/agent/extensions/orca-pod-setup` at the `pi-extension/` of this skill. When Pi is not installed (no `pi` in `PATH` and no `~/.pi/agent`) it does nothing. The extension works with Pi before and after its 0.74 package rename (`@mariozechner/*` → `@earendil-works/*`). Install pi-task separately for the question window.
 3. Opens the setup form.
    - In Pi it is the `orca_pod_setup` tool; it opens the form in the browser.
    - In Claude Code (and Codex) it is `scripts/setup-form.mjs`, which also prints the form address as `FORM URL:` (open it by hand if the browser does not); Claude Code runs it in the background. Codex runs it as an ordinary command and waits for it, with elevated permissions (it asks you once): inside the Codex sandbox the form cannot open its local port and Pi cannot list its models.
 4. Saves the whole `orca-pod.yaml` with all the profiles from the form. Before writing it checks whether the file has changed and shows "was → now". It does not write secrets into the file.
 5. Checks the result with `launch-provider.mjs --profiles` and for each profile reports the roles, the review mode (`full`, `reviewer`, `chief` or `self`) and the subagent limit.
-6. Asks whether to add the Codex rule. If a profile without `full_access` has a Codex role and the rule is missing, the skill asks once whether to allow all `orca` commands in Codex without confirmation. Only after you answer "yes" does it add the line `prefix_rule(pattern=["orca"], decision="allow")` to `~/.codex/rules/default.rules`. With "no" the Codex roles will ask for confirmation of `orca` commands.
 7. Adds `.orca-pod/` to the project's `.gitignore` (`scripts/ensure-gitignore.sh`; skipped without Git). The pipeline writes the review reports there. The script changes only an existing `.gitignore`: if there is none, it does not create it, and if the folder is already ignored, it changes nothing.
 
 How the form is organised:
 
-- **Profiles** are tabs at the top. "Add profile" creates a copy of the current one. A profile has a name, the "Default profile" mark, the default agent, "Concurrent subagents" (1–100, 6 by default) and the "Full access" switch (`full_access`, off by default: when it is on, Codex and Claude Code roles skip their permission prompts and run without a sandbox). A profile can be deleted, except the last one. If there are several profiles, `orca-pod` asks before the launch which one to use.
+- **Profiles** are up to three tabs. Add profile copies the current one. `max_subagents` controls concurrent helpers (6 by default, range 1–100). `full_access` applies to direct launches.
 - **Roles.** For each role of a profile you set the agent (default, Pi, Claude Code or Codex), the model, thinking, `use_subagents` and the set of helpers. The `reviewer` and `chief_reviewer` roles are optional: they are added and removed with buttons, and they appear in the file only when added.
 - **Language.** The form is bilingual (English and Russian) with an EN/RU switch in the header; its language follows the `language` field of the config, or the browser language when it is `auto`. A language chosen with the EN/RU switch is remembered in this browser during the form session and takes precedence over both.
 - **Done.** Press "Generate YAML": the form hands the result to the agent, which validates and saves the file (steps 4 and 5).
@@ -63,7 +62,6 @@ How the form is organised:
   - Claude Code: `claude` in `PATH`;
   - Codex: `codex` in `PATH` (`codex debug models`).
   An agent's CLI that is not in `PATH` is also looked for in the usual install folders (`~/.local/bin`, `~/.claude/local`, the folder of the running `node`, nvm, Volta, Bun, pnpm, Homebrew); `ORCA_POD_BIN_DIRS` replaces that list. If an agent is unavailable, it simply does not appear in the list, and its `CATALOG` line says why.
-- For Codex roles in a profile without `full_access`: the rule `prefix_rule(pattern=["orca"], decision="allow")` in `~/.codex/rules/default.rules` (the skill offers to add it, see step 6; it is not needed with `full_access`).
 - Node.js for the form scripts and the catalogs.
 - A browser for the form.
 
@@ -101,9 +99,9 @@ The model values are taken from the template; replace them with the ones availab
 | --- | --- | --- | --- |
 | Model | from the list of `pi --list-models` | an alias (`opus`, `sonnet`, `haiku`, `fable`) or a specific version from the catalog | from `codex debug models` (those visible in Codex) |
 | thinking | the levels that the model supports | `low`, `medium`, `high`, `xhigh`, `max` | the model's reasoning effort (for example `low`…`ultra`) |
-| Helpers | any agent name in pi-subagents; `worker`, `reviewer`, `scout`, `oracle`, `evidence-auditor` run as the skill's `orca-*` agents; `lens-checker` only in Pi | only an alias or `inherit` | any model of the Codex catalog or `inherit`; the `orca_*` agents are registered by the launcher |
+| Helpers | any agent name in pi-subagents; `worker`, `reviewer`, `scout`, `oracle`, `evidence-auditor` run as the skill's `orca-*` agents | only an alias or `inherit` | any model of the Codex catalog or `inherit`; the `orca_*` agents are registered by the launcher |
 
-The form offers Pi, Claude Code and Codex — those whose model catalog is available on the machine.
+The form discovers Pi, Claude Code, Codex, Qoder and OMP. An installed Qoder or OMP with an incomplete catalog can accept a manual model ID.
 
 ## Manual check
 
@@ -130,8 +128,7 @@ orca-pod-setup/
 │   ├── settings.md                       the meaning of every field of orca-pod.yaml
 │   └── discovery-and-recommendations.md  how to choose helpers and models
 ├── pi-extension/
-│   ├── index.js                          the orca_pod_setup tool for Pi (opens the form) and orca_pod_ask
-│   └── ask.js                            the orca_pod_ask question window for Pi (plan-blitz)
+│   ├── index.js                          the orca_pod_setup tool for Pi (opens the form)
 └── scripts/
     ├── ensure-gitignore.sh               adds .orca-pod/ to the project's .gitignore
     ├── link-pi-extension.sh              connects the extension to Pi
@@ -150,3 +147,5 @@ orca-pod-setup/
 - [orca-pod](../orca-pod/README.md): the pipeline that reads this file.
 - [SKILL.md](SKILL.md): the full setup workflow.
 - [references/settings.md](references/settings.md): the description of all the configuration fields.
+
+Coordinator uses each provider’s supported YOLO mode. The `full_access` setting controls direct launches. The caps are three profiles and three specializations per role. A complete backup is saved beside an upgraded YAML. Install the optional `pi_task` window separately with `pi install /absolute/path/to/pi-task`.

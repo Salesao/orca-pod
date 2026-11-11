@@ -24,14 +24,17 @@ let configLocation;
 let projectLocation;
 let migrateLegacyConfig;
 let migrationText;
+let upgradeProfiles;
 
 async function loadSiblingModules(pipelineSkill) {
-  const [form, catalogs, location] = await Promise.all([
+  const [form, catalogs, location, upgrade] = await Promise.all([
     import('./pipeline-form.mjs'),
     import('./catalogs.mjs'),
     import(pathToFileURL(path.join(pipelineSkill, 'scripts', 'config-location.mjs')).href),
+    import(pathToFileURL(path.join(pipelineSkill, 'scripts', 'profile-upgrade.mjs')).href),
   ]);
   ({ startPipelineForm } = form);
+  ({ upgradeProfiles } = upgrade);
   ({ discoverCatalogs, ENABLED_PROGRAMS, KNOWN_PROGRAMS } = catalogs);
   ({ configLocation, projectLocation, migrateLegacyConfig, migrationText } = location);
 }
@@ -79,6 +82,7 @@ let targetPath = '';
 let git;
 let sourceHash = null;
 let migration = null;
+let profileUpgrade;
 const setupSkillDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pipelineSkill = findPipelineSkill(setupSkillDir);
 try {
@@ -98,25 +102,32 @@ try {
   if (migration) for (const line of migration.split('\n')) console.error('MIGRATION ' + line);
   const root = location.worktreeRoot;
   targetPath = location.activePath; // migrateLegacyConfig has already recomputed it: a migrated worktree file wins over the shared one
-  const current = await readExistingConfig(targetPath);
+  let current = await readExistingConfig(targetPath);
+  if (current.hash !== null) {
+    profileUpgrade = upgradeProfiles(targetPath);
+    if (profileUpgrade.status === 'upgraded') {
+      console.error('PROFILE UPGRADE ' + JSON.stringify(profileUpgrade));
+      current = await readExistingConfig(targetPath);
+    }
+  }
   sourceHash = current.hash;
   const currentYaml = options.currentYamlFile ? readFileSync(options.currentYamlFile, 'utf8') : current.text;
 
-  const { models, sources } = await discoverCatalogs({ cwd: root, programs: options.programs });
+  const { models, sources, providers } = await discoverCatalogs({ cwd: root, programs: options.programs });
   for (const source of sources) console.error('CATALOG ' + source);
 
-  const form = await startPipelineForm({ models, sources, currentYaml, targetPath, timeout: options.timeout, signal: controller.signal });
+  const form = await startPipelineForm({ models, sources, providers, currentYaml, targetPath, profileUpgrade, timeout: options.timeout, signal: controller.signal });
   console.error('FORM URL: ' + form.url);
   if (options.open && !openBrowser(form.url)) console.error('The browser did not open automatically — open the link manually.');
   const outcome = await form.result;
   form.close();
   // No process.exit: let the accepted Submit/Cancel response flush; the closed server ends the loop.
-  console.log(JSON.stringify({ ...outcome, targetPath, git, sourceHash, migration, sources }));
+  console.log(JSON.stringify({ ...outcome, targetPath, git, sourceHash, migration, profileUpgrade, sources }));
 } catch (error) {
   // The Codex sandbox does not let the form open its local port.
   const message = error.syscall === 'listen' && ['EPERM', 'EACCES'].includes(error.code)
     ? 'The form cannot open a local port (' + error.message + '); in a sandbox, run setup-form.mjs with elevated permissions'
     : error.message || String(error);
-  console.log(JSON.stringify({ status: 'error', targetPath, git, sourceHash, migration, url: '', error: message }));
+  console.log(JSON.stringify({ status: 'error', targetPath, git, sourceHash, migration, profileUpgrade, url: '', error: message }));
   process.exitCode = error.exitCode ?? 1;
 }

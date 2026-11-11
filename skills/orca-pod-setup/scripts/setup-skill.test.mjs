@@ -9,13 +9,7 @@ import { test } from "node:test";
 // SKILL.md is an instruction for the agent: it cannot justify a question asked before the roles are chosen.
 const SKILL = readFileSync(new URL("../SKILL.md", import.meta.url), "utf8");
 
-test("the question about the orca rule for Codex comes after the YAML is saved (step 4), and accounts for full_access", () => {
-  const rule = SKILL.indexOf('prefix_rule(pattern=["orca"]');
-  const save = SKILL.indexOf("## 4. Save the file and validate");
-  const summary = SKILL.indexOf("## 5. Summary");
-  assert.ok(rule > save && rule < summary, `the rule is at position ${rule}, step 4 at ${save}, step 5 at ${summary}`);
-  assert.match(SKILL.slice(save, summary), /full_access/);
-});
+
 
 // A live Codex run: link-agents.sh and link-pi-extension.sh failed with "Operation not permitted" before the retry, and
 // Pi listed no models inside the sandbox (it takes lock files in ~/.pi/agent).
@@ -62,11 +56,7 @@ test("SKILL.md: both form paths continue only if status is submitted", () => {
   assert.match(flat(SKILL), /On `cancelled`, `timeout`, `aborted` or an error the configuration does not change/);
 });
 
-test("SKILL.md: the Codex rule is added only after an explicit yes", () => {
-  const text = flat(SKILL);
-  assert.match(text, /Add the line only after the user says "yes"/);
-  assert.match(text, /on "no", say that Codex roles will ask for confirmation of `orca` commands/);
-});
+
 
 test("SKILL.md: the Pi form is a tool call, not a shell command, and is never polled", () => {
   const text = flat(SKILL);
@@ -94,18 +84,9 @@ test("SKILL.md: what not to do", () => {
   assert.match(tail, /Do not write tests and do not run checks beyond `--profiles`\/`--validate`\/`--resolve`/);
 });
 
-test("settings.md: full_access only at the user's explicit request, never as a way around confirmations", () => {
-  const text = flat(readDoc("references/settings.md"));
-  assert.match(text, /Set `full_access: true` only at the user's explicit request/);
-  assert.match(text, /do not enable it yourself or offer it as a way around confirmations/);
-});
 
-test("settings.md: the only YAML limit is max_subagents of the profile, no budget fields", () => {
-  const text = flat(readDoc("references/settings.md"));
-  assert.match(text, /The only limit in the YAML is the profile's `max_subagents`/);
-  assert.match(text, /Do not add `budget`, `max_calls` or `max_parallel`/);
-  assert.match(text, /an integer from 1 to 100, 6 if the field is absent/);
-});
+
+
 
 test("discovery-and-recommendations.md: no auth probes, no silent fallback to another model", () => {
   const text = flat(readDoc("references/discovery-and-recommendations.md"));
@@ -137,10 +118,7 @@ test("settings.md has a root `language` row; the form language rule names ru and
   assert.match(flat(SKILL), /\(`ru` or `ru-\*` — Russian, any other tag — English\)/);
 });
 
-test("SKILL.md What not to do: never set full_access yourself or offer it to get past a refusal", () => {
-  const tail = flat(SKILL.slice(SKILL.indexOf("## What not to do")));
-  assert.match(tail, /Do not set `full_access: true` yourself or offer it as a way around a sandbox or confirmation refusal — only at the user's explicit request \(see \[references\/settings\.md\]\(references\/settings\.md\)\)/);
-});
+
 
 test("SKILL.md: translation fixes (levels approximate, Generate YAML, 10 minutes, closed code span)", () => {
   const text = flat(SKILL);
@@ -149,13 +127,12 @@ test("SKILL.md: translation fixes (levels approximate, Generate YAML, 10 minutes
   assert.match(text, /Clicking "Generate YAML" resolves the tool's pending Promise/);
   assert.match(text, /validates the form when "Generate YAML" is pressed/);
   assert.match(text, /foreground Bash is limited to 10 minutes/);
-  assert.ok(text.includes('Look for `prefix_rule(pattern=["orca"])` in `~/.codex/rules/*.rules`'));
 });
 
 test("settings.md: helpers heading and the subagents-block rule", () => {
   const text = flat(readDoc("references/settings.md"));
   assert.ok(text.includes("## Helpers: settings per role"));
-  assert.match(text, /A `subagents` block is accepted even when `use_subagents: false` \(a stub for later\); an empty `subagents:` block is rejected\./);
+  assert.match(text, /An omitted mapping uses the defaults[^.]*\. An explicit selection replaces/);
 });
 
 test("discovery-and-recommendations.md: the models section of pi-subagents and child agents wording", () => {
@@ -172,7 +149,6 @@ test("README: --resolve catalog warning is an entry of the `warnings` array of t
 
 test("README: form language precedence, Codex rule step title, Codex runs the form as an ordinary command", () => {
   const text = flat(readDoc("README.md"));
-  assert.match(text, /6\. Asks whether to add the Codex rule\./);
   assert.match(text, /Codex runs it as an ordinary command and waits for it/);
   assert.match(text, /A language chosen with the EN\/RU switch is remembered in this browser during the form session and takes precedence over both/);
 });
@@ -223,7 +199,7 @@ test("README: every file named in the layout tree exists", () => {
 test("README: setup-specific requirements and the link to the repository README", () => {
   const text = flat(README);
   assert.match(text, /\]\(\.\.\/\.\.\/README\.md\)/);
-  for (const needle of ["orca_pod_setup", "scripts/link-pi-extension.sh", "link-agents.sh", "pi --list-models", "prefix_rule(pattern=[\"orca\"], decision=\"allow\")", "/reload"]) {
+  for (const needle of ["orca_pod_setup", "scripts/link-pi-extension.sh", "link-agents.sh", "pi --list-models", "pi install /absolute/path/to/pi-task", "/reload"]) {
     assert.ok(text.includes(needle), `README does not mention ${needle}`);
   }
 });
@@ -288,14 +264,15 @@ test("ensure-gitignore.sh: not a Git repository → SKIP, nothing is written", (
   }
 });
 
-test("setup docs: Pi runs worker/reviewer/scout/oracle/evidence-auditor as the skill's orca-* agents without pi-lens", () => {
-  for (const text of [flat(SKILL), flat(readDoc("references/settings.md"))]) {
-    assert.match(text, /`orca-<name>`|`orca-\*`/);
-    assert.match(text, /without pi-lens/);
-  }
-  assert.doesNotMatch(flat(SKILL), /The bundled pi-subagents agents \(scout, worker, reviewer/);
-});
 
-test("settings.md: the orca-* helpers cannot use a model from a provider extension", () => {
-  assert.match(flat(readDoc("references/settings.md")), /a model from a provider extension \(for example pi-claude-bridge\)/);
+
+
+
+
+test("setup describes the profile backup and standalone question package", () => {
+  const settings = flat(readDoc("references/settings.md"));
+  assert.match(settings, /orca-pod\.yaml\.backup-/);
+  assert.match(settings, /choose up to three profiles/);
+  assert.match(flat(SKILL), /pi install \/absolute\/path\/to\/pi-task/);
+  assert.match(flat(SKILL), /provides only `orca_pod_setup`/);
 });
