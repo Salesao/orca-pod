@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="948" height="630" viewBox="0 0 948 630" role="img" aria-labelledby="t d">
   <title id="t">How orca-pod works</title>
-  <desc id="d">You run /orca-pod with a task. The Coordinator opens a terminal per role and hands the task to the Planner, which agrees a spec and a plan with you. The Implementer runs the plan with parallel workers and sends one review request per stage. The optional Reviewer checks each stage with parallel review lanes and sends it back for up to 3 rounds. The optional Chief Reviewer does the final review. Each role can delegate to its own helper subagents. The run ends FINAL_APPROVED, SELF_VERIFIED or BLOCKED.</desc>
+  <desc id="d">You run /orca-pod with a task. The Coordinator opens a terminal per role and hands the task to the Planner, which agrees a spec and a plan with you. The Implementer runs the plan with parallel workers and sends one review request per stage. The optional Reviewer checks each stage with parallel review lanes and sends it back for up to 3 rounds. The optional Chief Reviewer does the final review. Each role can delegate to its own helper subagents: up to three presets per role, plus any custom helpers you define. The run ends FINAL_APPROVED, SELF_VERIFIED or BLOCKED.</desc>
   <defs>
     <clipPath id="card"><rect width="948" height="630" rx="14"/></clipPath>
     <marker id="ah-aqua" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#3FE0C5"/></marker>
@@ -122,15 +122,18 @@
       <rect x="40.5" y="544.5" width="54" height="19" rx="5"/>
       <rect x="276.5" y="520.5" width="73" height="19" rx="5"/>
       <rect x="353.5" y="520.5" width="47" height="19" rx="5"/>
-      <rect x="276.5" y="544.5" width="80" height="19" rx="5"/>
-      <rect x="360.5" y="544.5" width="67" height="19" rx="5"/>
+      <rect x="276.5" y="544.5" width="113" height="19" rx="5"/>
       <rect x="512.5" y="520.5" width="87" height="19" rx="5"/>
       <rect x="603.5" y="520.5" width="47" height="19" rx="5"/>
-      <rect x="512.5" y="544.5" width="126" height="19" rx="5"/>
       <rect x="748.5" y="520.5" width="120" height="19" rx="5"/>
       <rect x="748.5" y="544.5" width="87" height="19" rx="5"/>
       <rect x="839.5" y="544.5" width="47" height="19" rx="5"/>
-      <rect x="748.5" y="568.5" width="126" height="19" rx="5"/>
+    </g>
+    <g fill="none" stroke="#3FE0C5" stroke-opacity="0.7" stroke-dasharray="3 3">
+      <rect x="98.5" y="544.5" width="80" height="19" rx="5"/>
+      <rect x="276.5" y="568.5" width="80" height="19" rx="5"/>
+      <rect x="512.5" y="544.5" width="80" height="19" rx="5"/>
+      <rect x="748.5" y="568.5" width="80" height="19" rx="5"/>
     </g>
     <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#CFE6EA">
       <text x="47" y="534">scout</text>
@@ -138,15 +141,18 @@
       <text x="47" y="558">oracle</text>
       <text x="283" y="534">worker ×N</text>
       <text x="360" y="534">scout</text>
-      <text x="283" y="558">researcher</text>
-      <text x="367" y="558">verifier</text>
+      <text x="283" y="558">verifier · self</text>
       <text x="519" y="534">reviewer ×N</text>
       <text x="610" y="534">scout</text>
-      <text x="519" y="558">lens-checker · Pi</text>
       <text x="755" y="534">evidence-auditor</text>
       <text x="755" y="558">reviewer ×N</text>
       <text x="846" y="558">scout</text>
-      <text x="755" y="582">lens-checker · Pi</text>
+    </g>
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#3FE0C5">
+      <text x="105.5" y="558">+ your own</text>
+      <text x="283" y="582">+ your own</text>
+      <text x="519" y="558">+ your own</text>
+      <text x="755" y="582">+ your own</text>
     </g>
 
     <!-- loop label -->

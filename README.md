@@ -82,7 +82,7 @@ decide). Not ready for real work? Try the built-in demo first: [Test mode](#test
 ## How it works
 
 <p align="center">
-  <img src="assets/pipeline.svg" alt="You run /orca-pod with a task. The Coordinator opens a terminal per role and hands the task to the Planner, which agrees a spec and a plan with you. The Implementer runs the plan with parallel workers and sends one review request per stage. The optional Reviewer checks each stage with parallel review lanes and sends it back for up to 3 rounds. The optional Chief Reviewer does the final review. The run ends FINAL_APPROVED, SELF_VERIFIED or BLOCKED.">
+  <img src="assets/pipeline.svg" alt="You run /orca-pod with a task. The Coordinator opens a terminal per role and hands the task to the Planner, which agrees a spec and a plan with you. The Implementer runs the plan with parallel workers and sends one review request per stage. The optional Reviewer checks each stage with parallel review lanes and sends it back for up to 3 rounds. The optional Chief Reviewer does the final review. Each role can delegate to its own helper subagents: up to three presets per role, plus any custom helpers you define. The run ends FINAL_APPROVED, SELF_VERIFIED or BLOCKED.">
 </p>
 
 <details>
