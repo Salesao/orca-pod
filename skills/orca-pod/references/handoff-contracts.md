@@ -1,4 +1,4 @@
-# Handoff contracts between terminals
+# Handoff contracts between role sessions
 
 A role gets its full context in **one first prompt** (templates below); all
 later messages are short: the gist of the request or decision. Shared context
@@ -6,7 +6,7 @@ later messages are short: the gist of the request or decision. Shared context
 project constraints itself from AGENTS.md/CLAUDE.md, and the pipeline skill by
 the pointer.
 
-Delivery follows the "Delivery between terminals" section of SKILL.md: the role
+Delivery follows the "Delivery between terminals" section of SKILL.md (including its chat routing and stdin helper): the role
 sends the message itself, without subagents. The first prompt of every role
 starts with a `ROLE:` line — a guard against the Coordinator steps (SKILL.md,
 "Role, not Coordinator"). No contract is a shell command. An accepted send is
@@ -33,8 +33,9 @@ TERMINALS: Planner handle=<...> (yours — pass it to Implementer); Implementer 
 REVIEW MODE: <full|reviewer|chief|self> (the skill's "Review modes" section)
 PROFILE: <name>; CONCURRENT SUBAGENTS: up to <N> per role (max_subagents; no launch budget)
 LANGUAGE: <tag>
+SURFACE: <this role: chat|terminal>; ENVIRONMENT: <workspace address and route relative to the role's execution host; local or paired-server selector>
 SKILL: <absolute path orca-pod/SKILL.md — read it first>
-SETTINGS: <resolved settings of the configured roles (provider/model/thinking/use_subagents) and their children>
+SETTINGS: <resolved settings of the configured roles (surface/provider/model/thinking/use_subagents/effectiveAccess/delegationEnforcement) and their children>
 REVIEW REPORTS: <absolute path = <project-root>/.orca-pod/reports>
 REQUIRED PLANNER SKILLS: using-superpowers — <absolute path SKILL.md>; plan-blitz — <absolute path SKILL.md | not installed>.
 ADDITIONAL SKILLS: <names/sources per role; for an empty set, say so>.
@@ -58,6 +59,7 @@ TERMINALS: Implementer handle=<...> (yours — put it in REVIEW_REQUEST and CHIE
 REVIEW MODE: <full|reviewer|chief|self>
 PROFILE: <name>; CONCURRENT SUBAGENTS: up to <N> per role (max_subagents; no launch budget)
 LANGUAGE: <tag>
+SURFACE: <this role: chat|terminal>; ENVIRONMENT: <workspace address and route relative to the role's execution host; local or paired-server selector>
 TESTS: <not requested | requested — the user's words> (the plan's tests: line)
 PROJECT: <path>
 SKILL: <absolute path orca-pod/SKILL.md — read it first>
@@ -87,6 +89,7 @@ TERMINALS: Implementer handle=<...>; Planner handle=<...>; Chief Reviewer handle
 REVIEW MODE: <full|reviewer|chief> — in reviewer/chief you issue the final verdict yourself
 PROFILE: <name>; CONCURRENT SUBAGENTS: up to <N> per role (max_subagents; no launch budget)
 LANGUAGE: <tag>
+SURFACE: <this role: chat|terminal>; ENVIRONMENT: <workspace address and route relative to the role's execution host; local or paired-server selector>
 SKILL: <abs SKILL.md>; PROTOCOL: <abs references/review-protocol.md>
 SETTINGS: <resolved settings of Reviewer/Chief Reviewer and children>
 REVIEW REPORTS: <abs path>
@@ -106,7 +109,7 @@ PLANNED CHECKS: <exact read-only commands/tools, required coverage, deadlines an
 DELEGATION: <effective selection or disabled — work inline>
 
 You are <Reviewer|Chief Reviewer>. Batch review by the protocol: parallel lanes, registry R<n>,
-only BLOCKER/MAJOR block. Report prose and messages to people — in LANGUAGE; report template labels (`Verdict:`, registry) — in English. Verdict — first into the report, then send it to Implementer by the handle from TERMINALS with the orca terminal send command (section "Delivery between terminals"): nobody reads text in your terminal.
+only BLOCKER/MAJOR block. Report prose and messages to people — in LANGUAGE; report template labels (`Verdict:`, registry) — in English. Verdict — first into the report, then send it to Implementer by the handle from TERMINALS with the orca terminal send command for a terminal, or the send-handoff.mjs helper for a chat (section "Delivery between terminals"): nobody reads text in your terminal.
 When delegation is enabled, use the selected helpers and wait for native completion or foreground results. Codex uses wait_agent. No timers or status polling.
 ```
 
@@ -175,15 +178,16 @@ CHIEF ATTEMPTS: <1>/2. DELEGATION: <effective selection or disabled — work inl
 SKILL: <abs SKILL.md — the "Chief Reviewer" section>; PROTOCOL: <abs review-protocol.md>, §6. SETTINGS: <Chief and its children>.
 PROFILE: <name>; CONCURRENT SUBAGENTS: up to <N> per role (max_subagents; no launch budget).
 LANGUAGE: <tag>
+SURFACE: <this role: chat|terminal>; ENVIRONMENT: <workspace address and route relative to the role's execution host; local or paired-server selector>
 Implementer handle=<...>; Planner handle=<...>.
 Report prose and messages to people — in LANGUAGE; report template labels (`Verdict:`, registry) — in English.
 When delegation is enabled, use the selected helpers and wait for native completion or foreground results. Codex uses wait_agent. No timers or status polling.
-Verdict — first into chief-attempt<N>.md, then send it to Implementer by handle with the orca terminal send command (section "Delivery between terminals"): nobody reads text in your terminal.
+Verdict — first into chief-attempt<N>.md, then send it to Implementer by handle with the orca terminal send command for a terminal, or the send-handoff.mjs helper for a chat (section "Delivery between terminals"): nobody reads text in your terminal.
 ```
 
 ## Chief Reviewer → Implementer
 
-Sent with the `orca terminal send` command to the Implementer handle from
+Sent with the `orca terminal send` command for terminals (the `send-handoff.mjs` helper routes chat addresses) to the Implementer handle from
 FINAL_READY (in the `chief` mode — from REVIEW_REQUEST).
 
 ```text

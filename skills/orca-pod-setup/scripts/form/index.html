@@ -34,7 +34,7 @@
         </div>
       </div>
       <h1 class="app-title" data-i18n="app.title">Pipeline role setup</h1>
-      <p class="app-lead" data-i18n="app.lead">The pipeline splits a task between four roles in separate Orca terminals: Planner writes the plan,
+      <p class="app-lead" data-i18n="app.lead">The pipeline splits a task between four roles in separate Orca chats or terminals: Planner writes the plan,
         Implementer carries it out, Reviewer and Chief Reviewer check the result independently. Here you pick an agent and a
         model for each role by strength and price, plus the subagents the role hands work to in parallel.</p>
       <!-- Text and the path element are put together by form.js (message app.meta, placeholder {path}). -->
@@ -100,13 +100,18 @@
             <div class="form-text" id="max-subagents-help">How many subagents one role runs at the same time: from 1 to 100, 6 by default. This is not a counter: more can run in total during a run.</div>
           </div>
         </div>
+        <div class="mt-3">
+          <label class="form-label" for="default-surface" data-i18n="surface.default">Default window</label>
+          <select class="form-select" id="default-surface" aria-describedby="default-surface-help"></select>
+          <div class="form-text" id="default-surface-help" data-i18n="surface.help">Choose the default for this profile. Each role can override it. Chats use Orca permissions and instruction-based helper policy.</div>
+        </div>
         <div class="full-access" id="full-access-block">
           <span class="form-label" id="full-access-label"><span data-i18n="fullAccess.label">Full access</span> <span class="label-key">full_access</span></span>
           <div class="form-switch-row form-switch">
             <input class="form-check-input" type="checkbox" role="switch" id="full-access" aria-labelledby="full-access-label" aria-describedby="full-access-state full-access-help">
             <label for="full-access" class="use-state" id="full-access-state"></label>
           </div>
-          <div class="form-text" id="full-access-help" data-i18n="fullAccess.help">Coordinator launches use each provider’s supported YOLO mode. This setting controls direct launches outside the Coordinator.</div>
+          <div class="form-text" id="full-access-help" data-i18n="fullAccess.help">Coordinator launches request supported YOLO for terminal roles. Chats use Orca permissions. This setting controls direct terminal launches.</div>
         </div>
         <div class="profile-actions">
           <div class="profile-default">

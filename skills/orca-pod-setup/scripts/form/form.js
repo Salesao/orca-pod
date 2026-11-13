@@ -233,12 +233,13 @@ function initState(key, preRoles) {
   const p = (preRoles && preRoles[key]) || null;
   const optional = ROLES.find((role) => role.key === key).optional;
   // Required roles are always on; optional ones only if the current YAML has them.
-  const st = state[key] = { enabled: !optional || !!(p && p.present), provider: '', model: '', thinking: '', useSubagents: false, subagents: [], notes: [] };
+  const st = state[key] = { enabled: !optional || !!(p && p.present), surface: '', provider: '', model: '', thinking: '', useSubagents: false, subagents: [], notes: [] };
   if (!p || !p.present) return;
   st.provider = (p.provider && p.provider !== defProv) ? p.provider : '';
   const prog = effProg(key);
   st.model = resolveModel(p.model, prog);
   if (p.model && !st.model) st.notes.push(msg('note.modelMissing', { model: p.model, agent: progLabel(prog) }));
+  st.surface = p.surface || '';
   st.thinking = p.thinking || '';
   if (st.model && st.thinking && !levelsOf(st.model).includes(st.thinking)) {
     const next = pickLevel(levelsOf(st.model), 'high');
@@ -358,6 +359,9 @@ function buildRole(role) {
   const { key, name, optional } = role;
   const st = state[key];
 
+  const surfaceSelect = h('select', { class: 'form-select', onchange: () => { st.surface = surfaceSelect.value; } });
+  fillSelect(surfaceSelect, [['', tr('surface.inherit')], ['terminal', tr('surface.terminal')], ['chat', tr('surface.chat')]], st.surface);
+
   const progSelect = h('select', { class: 'form-select', onchange: () => {
     st.provider = progSelect.value; clearError(key + '-prog'); clearNotes(key); applyProgram(key);
   } });
@@ -425,6 +429,7 @@ function buildRole(role) {
     h('p', { class: 'role-desc', text: tr('role.' + key + '.desc') }),
     h('div', { class: 'notes', id: key + '-notes', role: 'status' }),
     h('div', { class: 'row g-3' },
+      field({ id: key + '-surface', label: tr('surface.role'), yamlKey: 'surface', control: surfaceSelect, cols: 'col-12 col-sm-6 col-lg-3' }),
       field({ id: key + '-prog', label: tr('field.agent'), yamlKey: 'provider', control: progSelect, cols: 'col-12 col-sm-6 col-lg-3' }),
       field({ id: key + '-model', label: tr('field.model'), yamlKey: 'model', control: modelSelect, helpEl: manualButton, cols: 'col-12 col-sm-6 col-lg-3' }),
       field({ id: key + '-think', label: tr('field.thinking'), yamlKey: 'thinking', control: thinkSelect, help: '', cols: 'col-12 col-sm-6 col-lg-3' }),
@@ -576,7 +581,7 @@ function setDefProv(value) {
   currentProfile().defProv = value;
 }
 function makeProfile(pre) {
-  const profile = { uid: nextUid++, name: pre.name, defProv: pre.defaultProvider || (D.programs[0] && D.programs[0].id) || 'pi', maxSubagents: pre.maxSubagents ?? limitDefault, fullAccess: pre.fullAccess === true, roles: {} };
+  const profile = { uid: nextUid++, name: pre.name, defaultSurface: pre.defaultSurface || 'terminal', defProv: pre.defaultProvider || (D.programs[0] && D.programs[0].id) || 'pi', maxSubagents: pre.maxSubagents ?? limitDefault, fullAccess: pre.fullAccess === true, roles: {} };
   const saved = [state, defProv];
   state = profile.roles;
   defProv = profile.defProv;
@@ -617,6 +622,7 @@ function renderProfileFields() {
   $('max-subagents').value = Number.isFinite(profile.maxSubagents) ? String(profile.maxSubagents) : '';
   renderFullAccess(profile);
   fillDefaultProvider();
+  fillSelect($('default-surface'), [['terminal', tr('surface.terminal')], ['chat', tr('surface.chat')]], profile.defaultSurface);
   const sw = $('profile-default');
   sw.checked = isDefault(profile);
   sw.disabled = isDefault(profile);
@@ -646,7 +652,7 @@ function selectProfile(index, focusTab = false) {
 function addProfile() {
   if (profiles.length >= maxProfiles) return;
   const source = currentProfile();
-  const copy = { uid: nextUid++, name: uniqueName(source.name), defProv: source.defProv, maxSubagents: source.maxSubagents, fullAccess: source.fullAccess, roles: JSON.parse(JSON.stringify(source.roles)) };
+  const copy = { uid: nextUid++, name: uniqueName(source.name), defaultSurface: source.defaultSurface, defProv: source.defProv, maxSubagents: source.maxSubagents, fullAccess: source.fullAccess, roles: JSON.parse(JSON.stringify(source.roles)) };
   for (const st of Object.values(copy.roles)) st.notes = [];
   profiles.push(copy);
   selectProfile(profiles.length - 1);
@@ -806,11 +812,11 @@ async function submit() {
         const st = profile.roles[key];
         if (!st.enabled) continue; // an optional role that was not added does not go to the YAML
         roles[key] = {
-          provider: st.provider || '', model: st.model, thinking: st.thinking, useSubagents: st.useSubagents,
+          surface: st.surface || '', provider: st.provider || '', model: st.model, thinking: st.thinking, useSubagents: st.useSubagents,
           subagents: st.subagents.map((s) => ({ name: s.name, model: s.model || 'inherit', thinking: s.thinking, ...definitionOf(s) })),
         };
       }
-      return { name: profile.name, defaultProvider: profile.defProv, maxSubagents: profile.maxSubagents, fullAccess: profile.fullAccess === true, roles };
+      return { name: profile.name, defaultSurface: profile.defaultSurface, defaultProvider: profile.defProv, maxSubagents: profile.maxSubagents, fullAccess: profile.fullAccess === true, roles };
     }),
   };
   setBusy(true, 'status.generating');
@@ -911,6 +917,7 @@ function render(data) {
 
   $('language').addEventListener('change', () => clearError('language'));
   $('language').disabled = false;
+  $('default-surface').addEventListener('change', () => { currentProfile().defaultSurface = $('default-surface').value; });
 
   profiles = D.pre.profiles.map(makeProfile);
   const active = profiles.find((p) => p.name === D.pre.activeProfile) || profiles[0];

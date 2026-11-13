@@ -15,8 +15,9 @@ automatically. The file sets the programs and models the pipeline works with. Th
 | `language` | A root field, one language for the whole project and all its profiles: the language the roles use when they talk to the user. `auto` (the default) means the language of the user's message, English when there is no user text; otherwise a language tag matching `^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$`, such as `en`, `ru`, `pt-BR`. An explicit tag wins over `auto`; the launcher rejects any other value. The setup form's interface language follows the same field: an explicit `ru` or `ru-*` tag gives Russian, any other explicit tag gives English; with `auto` (or when the field is absent) it is the browser's first language (Russian for `ru` or `ru-*`, otherwise English). A language chosen with the EN/RU switch is remembered in this browser during the form session and overrides both |
 | `profiles` | Named profiles: each has its own set of roles, agents, models and limits |
 | `default_provider` of a profile | The program for the roles of this profile that have no `provider` of their own |
+| `default_surface` of a profile | `terminal` (default) or `chat`; each role may override it with `surface` |
 | `max_subagents` of a profile | How many subagents one role runs at once: an integer from 1 to 100, 6 if the field is absent |
-| `full_access` of a profile | Direct launch setting (boolean); Coordinator always requests supported YOLO through `--coordinator`. Pi uses host permissions. |
+| `full_access` of a profile | Direct launch setting (boolean); Coordinator requests supported YOLO for terminals through `--coordinator`. Pi and chats use host permissions; chat helper policy is instruction-only. |
 | `roles` | The roles inside the selected set |
 | `planner` | Writes the specification and the plan with waves of independent TODOs |
 | `implementer` | Integrator: hands independent TODOs to parallel workers, integrates, sends the stage to review as one batch |
@@ -147,7 +148,7 @@ quotes: `true` or `false`. Inside a helper `model` and `thinking` are required;
 `description` and `instructions` are the optional definition pair. The form emits
 multiline instructions as a quoted YAML string with `\n` escapes.
 Do not add passwords, tokens or unsupported fields.
-Inside a profile only `roles`, `default_provider`, `max_subagents` and `full_access` are allowed.
+Inside a profile only `roles`, `default_provider`, `default_surface`, `max_subagents` and `full_access` are allowed.
 For a configuration with more than five profiles, setup/preflight first saves
 all original bytes to a sibling `orca-pod.yaml.backup-<unique-id>`. It then keeps
 the active profile and the first four other profiles in their original order.

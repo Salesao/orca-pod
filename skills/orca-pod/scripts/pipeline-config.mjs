@@ -14,9 +14,9 @@ const PROVIDER_ALIASES = new Map([
 export const PROVIDER_LABELS = { pi: "Pi", "claude-code": "Claude Code", codex: "Codex", omp: "OMP", qoder: "Qoder" };
 
 const ALLOWED_ROOT_KEYS = ["active_profile", "default_provider", "language", "profiles"];
-const ALLOWED_PROFILE_KEYS = ["roles", "default_provider", "max_subagents", "full_access"];
+const ALLOWED_PROFILE_KEYS = ["roles", "default_provider", "default_surface", "max_subagents", "full_access"];
 const ALLOWED_ROLE_KEYS = ["provider", "model", "thinking"];
-const ALLOWED_TERMINAL_ROLE_KEYS = [...ALLOWED_ROLE_KEYS, "use_subagents", "subagents"];
+const ALLOWED_TERMINAL_ROLE_KEYS = [...ALLOWED_ROLE_KEYS, "surface", "use_subagents", "subagents"];
 const SUBAGENT_ROLE_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
 const ALLOWED_SUBAGENT_KEYS = ["model", "thinking", "description", "instructions"];
 export const ROLE_KEYS = ["planner", "implementer", "reviewer", "chief_reviewer"];
@@ -332,13 +332,18 @@ export function resolveProfile(config, requestedProfileName = null) {
   const defaultProvider = has(profile, "default_provider")
     ? canonicalProvider(profile.default_provider, `profiles.${profileName}.default_provider`)
     : rootDefaultProvider;
+  const defaultSurface = profile.default_surface ?? 'terminal';
+  if (!['terminal', 'chat'].includes(defaultSurface)) fail(`profiles.${profileName}.default_surface must be terminal or chat`);
   const maxSubagents = maxSubagentsOf(profile, profileName);
   const fullAccess = fullAccessOf(profile, profileName);
   const resolvedRoles = Object.create(null);
   for (const [name, settings] of Object.entries(roles)) {
     const roleSettings = mapping(settings, `roles.${name}`);
     assertOnlyKeys(roleSettings, ALLOWED_TERMINAL_ROLE_KEYS, `roles.${name}`);
+    const surface = roleSettings.surface ?? defaultSurface;
+    if (!['terminal', 'chat'].includes(surface)) fail(`roles.${name}.surface must be terminal or chat`);
     resolvedRoles[name] = {
+      surface,
       provider: has(roleSettings, "provider") ? canonicalProvider(roleSettings.provider, `roles.${name}.provider`) : defaultProvider,
       model: roleSetting(has(roleSettings, "model") ? roleSettings.model : null, `roles.${name}.model`),
       thinking: roleSetting(has(roleSettings, "thinking") ? roleSettings.thinking : null, `roles.${name}.thinking`),
@@ -370,16 +375,16 @@ export function resolveProfile(config, requestedProfileName = null) {
     );
   }
 
-  return { profile: profileName, language, defaultProvider, maxSubagents, fullAccess, reviewMode: reviewModeOf(resolvedRoles), resolvedRoles };
+  return { profile: profileName, language, defaultProvider, defaultSurface, maxSubagents, fullAccess, reviewMode: reviewModeOf(resolvedRoles), resolvedRoles };
 }
 
 /** One line for the Coordinator's question: roles by full names, agent · model · thinking, review mode and limit. */
 export function profileSummary(resolved) {
   const roles = ROLE_KEYS.map((role) => {
     const settings = resolved.resolvedRoles[role];
-    return `${ROLE_LABELS[role]}: ${settings ? `${PROVIDER_LABELS[settings.provider]} · ${settings.model} · ${settings.thinking}` : "not configured"}`;
+    return `${ROLE_LABELS[role]}: ${settings ? `${PROVIDER_LABELS[settings.provider]} · ${settings.model} · ${settings.thinking} · ${settings.surface}` : "not configured"}`;
   });
-  return [...roles, `review mode ${resolved.reviewMode}`, `subagents up to ${resolved.maxSubagents}`, ...(resolved.fullAccess ? ["full access (yolo)"] : [])].join("; ");
+  return [...roles, `review mode ${resolved.reviewMode}`, `subagents up to ${resolved.maxSubagents}`, ...(resolved.fullAccess ? [Object.values(resolved.resolvedRoles).some((role) => role.surface === "chat") ? "full access requested (terminal yolo; chat host-default)" : "full access (yolo)"] : [])].join("; ");
 }
 
 /** All profiles of the file: the active one first, then in file order. A profile's error does not hide the others. */
@@ -395,12 +400,12 @@ export function listProfiles(config) {
         const resolved = resolveProfile(config, name);
         return {
           name, isActive, valid: true,
-          defaultProvider: resolved.defaultProvider,
+          defaultProvider: resolved.defaultProvider, defaultSurface: resolved.defaultSurface,
           maxSubagents: resolved.maxSubagents,
           fullAccess: resolved.fullAccess,
           reviewMode: resolved.reviewMode,
           roles: Object.fromEntries(Object.entries(resolved.resolvedRoles).map(([role, settings]) => [role, {
-            provider: settings.provider, model: settings.model, thinking: settings.thinking, useSubagents: settings.shouldUseSubagents,
+            surface: settings.surface, provider: settings.provider, model: settings.model, thinking: settings.thinking, useSubagents: settings.shouldUseSubagents,
           }])),
           summary: profileSummary(resolved),
         };

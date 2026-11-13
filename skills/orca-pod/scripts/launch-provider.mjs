@@ -12,9 +12,10 @@ import { readCodexCatalog } from "./codex-models.mjs";
 import { providerCommand } from "./provider-command.mjs";
 import { getProviderCapabilities, MODEL_CATALOG_ARGS, parseModelCatalog, PROVIDER_EXECUTABLES } from "./provider-capabilities.mjs";
 import { resolveRolePolicy } from "./role-policy.mjs";
+import { launchChat } from './chat-launch.mjs';
 import { prepareNativeHelpers } from "./native-helpers.mjs";
 
-const USAGE = "usage: launch-provider.mjs --role planner|implementer|reviewer|chief_reviewer [--profile name] [--resolve | --validate] | --roles [--profile name] | --profiles";
+const USAGE = "usage: launch-provider.mjs --role planner|implementer|reviewer|chief_reviewer [--profile name] [--resolve | --validate] [--worktree selector] [--environment selector] [--retry-launch id] | --roles [--profile name] | --profiles";
 
 function fail(message) {
   throw new PipelineConfigError(message);
@@ -66,7 +67,7 @@ function resolveRole(role, requestedProfileName = null, coordinator = false) {
   }
   const settings = resolvedRoles[role];
   return { ...settings, configPath, profile, role, reviewMode, maxSubagents, fullAccess: coordinator || fullAccess, language,
-    policy: resolveRolePolicy(resolved, role), requiredPlannerMode: role === 'planner' && settings.provider === 'codex' ? 'plan' : null,
+    policy: resolveRolePolicy(resolved, role), requiredPlannerMode: role === 'planner' && settings.provider === 'codex' && settings.surface === 'terminal' ? 'plan' : null,
     runtimeVerified: false };
 }
 
@@ -79,16 +80,19 @@ function listRoles(requestedProfileName = null, coordinator = false) {
     roles: ROLE_KEYS.filter((name) => resolvedRoles[name]),
     reviewMode, maxSubagents, fullAccess: coordinator || fullAccess,
     settings: Object.fromEntries(Object.entries(resolvedRoles).map(([role, settings]) => [role, {
-      ...settings, policy: resolveRolePolicy(resolved, role), requiredPlannerMode: role === 'planner' && settings.provider === 'codex' ? 'plan' : null,
+      ...settings, policy: resolveRolePolicy(resolved, role), requiredPlannerMode: role === 'planner' && settings.provider === 'codex' && settings.surface === 'terminal' ? 'plan' : null,
     }])),
   };
 }
 
 function optionsFrom(argv) {
-  const options = { resolve: false, shouldValidate: false, listRoles: false, listProfiles: false, role: null, profileName: null, coordinator: false, terminalHandle: null };
+  const options = { resolve: false, shouldValidate: false, listRoles: false, listProfiles: false, role: null, profileName: null, coordinator: false, terminalHandle: null, worktree: null, environment: null, retryLaunch: null };
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === "--coordinator") options.coordinator = true;
     else if (argv[index] === "--terminal" && /^term_[a-z0-9-]+$/i.test(argv[index + 1] ?? "")) options.terminalHandle = argv[++index];
+    else if (argv[index] === "--worktree" && argv[index + 1]?.trim() && !argv[index + 1].startsWith("--")) options.worktree = argv[++index];
+    else if (argv[index] === "--environment" && argv[index + 1]?.trim() && !argv[index + 1].startsWith("--")) options.environment = argv[++index];
+    else if (argv[index] === "--retry-launch" && argv[index + 1]?.trim() && !argv[index + 1].startsWith("--")) options.retryLaunch = argv[++index];
     else if (argv[index] === "--resolve") options.resolve = true;
     else if (argv[index] === "--validate") options.shouldValidate = true;
     else if (argv[index] === "--roles") options.listRoles = true;
@@ -99,13 +103,13 @@ function optionsFrom(argv) {
   }
   if (options.profileName !== null && options.profileName.trim() === "") fail("--profile requires a non-empty profile name");
   if (options.listProfiles) {
-    if (options.listRoles || options.role || options.resolve || options.shouldValidate || options.profileName !== null || options.coordinator || options.terminalHandle) {
+    if (options.listRoles || options.role || options.resolve || options.shouldValidate || options.profileName !== null || options.coordinator || options.terminalHandle || options.worktree || options.environment || options.retryLaunch) {
       fail("--profiles cannot be combined with --roles, --role, --profile, --resolve or --validate");
     }
     return options;
   }
   if (options.listRoles) {
-    if (options.role || options.resolve || options.shouldValidate || options.terminalHandle) fail("--roles cannot be combined with --role, --resolve or --validate");
+    if (options.role || options.resolve || options.shouldValidate || options.terminalHandle || options.worktree || options.environment || options.retryLaunch) fail("--roles cannot be combined with --role, --resolve or --validate");
     return options;
   }
   if (!options.role) fail(USAGE);
@@ -125,6 +129,16 @@ try {
     process.exit(0);
   }
   const settings = resolveRole(options.role, options.profileName, options.coordinator);
+  if (settings.surface === 'chat') {
+    if (options.terminalHandle) fail('A chat role cannot use --terminal');
+    settings.effectiveAccess = 'host-default';
+    settings.delegationEnforcement = 'instruction-only';
+    settings.warnings = ['Chat permissions are controlled by Orca; terminal YOLO flags and native helper configuration are not applied. Helpers run only when native chat tools can honor the policy, otherwise inline.'];
+    if (options.resolve || options.shouldValidate) console.log(JSON.stringify(settings));
+    else process.exitCode = launchChat(settings, { ...options, skillDir: SKILL_DIR });
+    process.exit(process.exitCode ?? 0);
+  }
+  if (options.worktree || options.environment || options.retryLaunch) fail('--worktree, --environment and --retry-launch apply only to chat roles; launch terminal roles in their prepared terminal');
   if (settings.requiredPlannerMode && options.coordinator && !options.resolve && !options.shouldValidate && !options.terminalHandle) {
     fail('A Coordinator-launched Codex Planner requires --terminal <handle> for its session-local save hook');
   }

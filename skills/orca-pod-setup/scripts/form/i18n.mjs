@@ -18,6 +18,14 @@ export const LANGUAGES = ['en', 'ru'];
 
 export const MESSAGES = {
   en: {
+    "surface.default": "Default window",
+    "surface.role": "Open role in",
+    "surface.terminal": "Terminal",
+    "surface.chat": "Chat",
+    "surface.inherit": "Profile default",
+    "surface.help": "Choose the default for this profile. Each role can override it. Chats use Orca permissions and instruction-based helper policy.",
+    "srv.surface": "Window must be terminal or chat.",
+
     'manual.button': 'Enter model ID',
     'manual.prompt': 'Enter the exact model ID. The local catalog is incomplete.',
     'manual.selected': '{id} (manual)',
@@ -44,7 +52,7 @@ export const MESSAGES = {
     'lang.name.en': 'English',
     'lang.name.ru': 'Русский',
     'app.title': 'Pipeline role setup',
-    'app.lead': 'The pipeline splits a task between four roles in separate Orca terminals: Planner writes the plan, Implementer carries it out, Reviewer and Chief Reviewer check the result independently. Here you pick an agent and a model for each role by strength and price, plus the subagents the role hands work to in parallel.',
+    'app.lead': 'The pipeline splits a task between four roles in separate Orca chats or terminals: Planner writes the plan, Implementer carries it out, Reviewer and Chief Reviewer check the result independently. Here you pick an agent and a model for each role by strength and price, plus the subagents the role hands work to in parallel.',
     'app.meta': 'Settings will be saved to {path} — the agent writes the file after validation.',
     'errors.title': 'The form was not accepted — fix the fields',
 
@@ -68,7 +76,7 @@ export const MESSAGES = {
     'profile.max.label': 'Concurrent subagents',
     'profile.max.help': 'How many subagents one role runs at the same time: from 1 to {max}, {defaultValue} by default. This is not a counter: more can run in total during a run.',
     'fullAccess.label': 'Full access',
-    'fullAccess.help': 'Coordinator launches use each provider’s supported YOLO mode. This setting controls direct launches outside the Coordinator.',
+    'fullAccess.help': 'Coordinator launches request supported YOLO for terminal roles. Chats use Orca permissions. This setting controls direct terminal launches.',
     'fullAccess.on': 'yes — direct launches also request YOLO',
     'fullAccess.off': 'no — direct launches use provider defaults',
     'profile.default.label': 'Default profile',
@@ -231,6 +239,14 @@ export const MESSAGES = {
   },
 
   ru: {
+    "surface.default": "Окно по умолчанию",
+    "surface.role": "Открывать роль в",
+    "surface.terminal": "Терминал",
+    "surface.chat": "Чат",
+    "surface.inherit": "Как в профиле",
+    "surface.help": "Выберите вариант для профиля. У каждой роли его можно изменить. Чаты используют разрешения Orca и ограничения помощников в инструкциях.",
+    "srv.surface": "Тип окна должен быть terminal или chat.",
+
     'manual.button': 'Ввести ID модели',
     'manual.prompt': 'Введите точный ID модели. Локальный каталог неполон.',
     'manual.selected': '{id} (ручной ввод)',
@@ -257,7 +273,7 @@ export const MESSAGES = {
     'lang.name.en': 'English',
     'lang.name.ru': 'Русский',
     'app.title': 'Настройка ролей pipeline',
-    'app.lead': 'Pipeline делит задачу между четырьмя ролями в отдельных терминалах Orca: Planner составляет план, Implementer реализует его, Reviewer и Chief Reviewer независимо проверяют результат. Здесь каждой роли подбирается агент и модель по силе и цене, а также субагенты, которым роль раздаёт работу параллельно.',
+    'app.lead': 'Pipeline делит задачу между четырьмя ролями в отдельных чатах или терминалах Orca: Planner составляет план, Implementer реализует его, Reviewer и Chief Reviewer независимо проверяют результат. Здесь каждой роли подбирается агент и модель по силе и цене, а также субагенты, которым роль раздаёт работу параллельно.',
     'app.meta': 'Настройки сохранятся в {path} — агент запишет файл после проверки.',
     'errors.title': 'Форма не принята — исправь поля',
 
@@ -281,7 +297,7 @@ export const MESSAGES = {
     'profile.max.label': 'Субагентов одновременно',
     'profile.max.help': 'Сколько субагентов одна роль запускает одновременно: от 1 до {max}, по умолчанию {defaultValue}. Это не счётчик: всего за прогон их может быть больше.',
     'fullAccess.label': 'Полные права',
-    'fullAccess.help': 'Координатор использует поддерживаемый провайдером YOLO. Эта настройка действует при прямом запуске роли без координатора.',
+    'fullAccess.help': 'Координатор запрашивает поддерживаемый YOLO для терминалов. Чаты используют разрешения Orca. Настройка действует при прямом запуске в терминале.',
     'fullAccess.on': 'да — прямой запуск также запрашивает YOLO',
     'fullAccess.off': 'нет — прямой запуск использует настройки провайдера',
     'profile.default.label': 'Профиль по умолчанию',

@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
+import { orcaCommand } from './orca-command.mjs';
 
 const exec = promisify(execFile);
 const digest = (content) => createHash('sha256').update(content).digest('hex');
@@ -80,7 +81,10 @@ export async function readCurrentCodexStatus(call, requestStatus, wait = delay) 
   throw new Error('Could not verify fresh Codex /status evidence in the rendered Orca terminal');
 }
 
-export function orcaTerminal(handle, command = 'orca') {
+export function orcaTerminal(handle, command = orcaCommand()) {
+  if (!/^term_[a-z0-9-]+$/i.test(handle ?? '')) {
+    throw new Error('Codex Planner mode control requires a terminal handle; chat sessions do not support TUI commands or the terminal Stop hook');
+  }
   async function call(action, args = []) {
     const { stdout } = await exec(command, ['terminal', action, '--terminal', handle, ...args, '--json'], { timeout: 65000, maxBuffer: 1024 * 1024 });
     const response = JSON.parse(stdout);

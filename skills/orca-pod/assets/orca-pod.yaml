@@ -10,6 +10,7 @@ profiles:
   # All roles in Pi (pi-subagents). Helper names are YAML keys: worker, reviewer, scout, oracle and
   # evidence-auditor run as the skill's orca-* agents (without pi-lens), the rest by their own name.
   sol-quality:
+    default_surface: terminal
     default_provider: pi
     # How many subagents one role runs at the same time: 1–100, 6 if the field is absent.
     max_subagents: 6
@@ -66,6 +67,7 @@ profiles:
   # All roles in Claude Code. A helper's model is inherit or an alias opus|sonnet|haiku|fable;
   # thinking — low..max or inherit.
   claude-quality:
+    default_surface: terminal
     default_provider: claude-code
     max_subagents: 6
     roles:

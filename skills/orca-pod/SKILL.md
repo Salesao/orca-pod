@@ -9,7 +9,7 @@ The Coordinator is the calling context: a quick check of `orca-pod.yaml`, one
 question about the profile (if there are several) and additional skills, the role
 terminals, the first assignment to Planner — and exit. Planner and Implementer are
 mandatory; Reviewer and Chief Reviewer are optional roles (see "Review modes").
-Each role is a separate Orca terminal and can run in Pi, Claude Code, Codex, Qoder or OMP
+Each role is a separate Orca chat or terminal and can run in Pi, Claude Code, Codex, Qoder or OMP
 according to `orca-pod.yaml`.
 
 **Role, not Coordinator.** If a role launcher started you or the first prompt
@@ -40,7 +40,7 @@ Pi, Claude Code and Codex subagents — [subagents.md](references/subagents.md).
 severity scale, the findings registry and the re-review rules —
 [review-protocol.md](references/review-protocol.md). Messages between roles —
 [handoff-contracts.md](references/handoff-contracts.md). Orca Run, worker task,
-the new Orca API or an alternative orchestrator are not used.
+task orchestration or an alternative orchestrator are not used. Direct chat mail uses only `orchestration send`, without a Run or Task.
 
 ## Invariants
 
@@ -54,11 +54,10 @@ the new Orca API or an alternative orchestrator are not used.
   `$orca-cli`), resolves the executable, checks `ORCA status --json`, then
   `ORCA skills get orca-cli`. If the skill is missing, do not stop: use `--help` of
   the discovered executable.
-- In Codex call Orca with the `orca` command, not an absolute path: the Codex rule
-  `prefix_rule(pattern=["orca"])` matches the beginning of the command.
-  `runtime_access_denied` (EPERM) from `orca` means there is no rule: do not
-  bypass the sandbox, request a retry with elevated privileges (Codex will ask the
-  user) and say that the rule is offered by orca-pod-setup.
+- Use the executable resolved by the versioned `orca-cli` skill, including
+  `ORCA_CLI_COMMAND` in chats and managed sessions. Never substitute bare `orca`
+  when it targets another build. A sandbox denial requires the host's permission
+  mechanism for that executable; do not switch runtimes to bypass it.
 - After the Orca preflight, migrate the old config layouts: `node <skill-dir>/scripts/config-location.mjs migrate`
   (show the user every `MOVED`/`IGNORED`/`SKIP` line — one line per result, `OK` — silently).
   After that — only the active config: `activePath` from `config-location.mjs where`.
@@ -68,7 +67,8 @@ the new Orca API or an alternative orchestrator are not used.
 - The task source is an exact RAF path or a non-empty inline description. The RAF
   path takes priority. Pass the inline `TASK DESCRIPTION` verbatim; analysis and
   constraints go in separate blocks.
-- Roles are tied to the issued handle, `ptyId`, `incarnationId`, host and workspace.
+- Terminal roles are tied to the issued handle, `ptyId`, `incarnationId`, host and workspace.
+  Chat roles use the issued `sessionId` as `orca_session_id:<sessionId>`, plus host and workspace.
   Title, `tabId`, active tab and UUID do not replace identity.
 - Do not write pipeline service files (registry, intents, receipts, journals):
   everything needed is passed in prompts. The exception is `.orca-pod/reports/` in
@@ -203,6 +203,9 @@ profile: roles with required planner, implementer and optional reviewer,
 chief_reviewer; optional default_provider, max_subagents (an integer 1–100, 6 if
 absent) and full_access (a boolean for direct launches; see below). There can
 be one to five profiles; a run uses one — the one chosen at start ("Profile selection").
+A profile also accepts `default_surface: terminal|chat` (terminal when omitted).
+A role accepts `surface: terminal|chat` to override that default; omit it to inherit.
+The setup form exposes both choices and preserves them when editing or copying profiles.
 A role: provider, model, thinking (non-empty strings), use_subagents, subagents.
 `subagents` is a mapping of selected helper names (lower-case, digits, hyphen)
 to model/thinking settings; optional `description` (one line) and `instructions`
@@ -214,7 +217,7 @@ missing block selects the role defaults. An explicit selection replaces them. Pr
 thinking from `low|medium|high|xhigh|max`, and the model of its helpers to be
 `inherit` or an alias `opus|sonnet|haiku|fable` (the Agent tool does not accept a full id).
 
-Coordinator always requests session-local YOLO with `--coordinator` for every role.
+For terminal roles, Coordinator always requests session-local YOLO with `--coordinator` for every role. Chat roles use Orca permissions (`host-default`); the CLI cannot apply terminal access flags or helper registrations to a chat. Orca's Settings → Agents controls defaults for new chats and its chat UI exposes a permission selector, but the CLI offers no per-launch permission or helper override. Do not change the user's permission settings to imitate terminal access. Their helper policy is instruction-only, with inline fallback when native tools cannot honor it. Report this limitation in preflight rather than claiming YOLO or runtime enforcement.
 Codex uses `--dangerously-bypass-approvals-and-sandbox`, Claude Code and Qoder use
 `--dangerously-skip-permissions`, and OMP uses `--approval-mode=yolo` when detected.
 Pi uses the host's existing permissions; report `host-default`. The launcher
@@ -232,9 +235,8 @@ If the catalog is unavailable — a line in `warnings`, not an error.
 and prints their list (the active one first). `--roles --profile <name>` validates the
 selected profile and prints the configured roles, `reviewMode` (`full` | `reviewer` |
 `chief` | `self`) and `maxSubagents`. `--role <role> --profile <name> --validate`
-validates the schema of one role; `--resolve` additionally looks for the executable
-(required for every configured role, but it proves neither authorization, nor the
-model, nor the children's permissions). Without `--profile`, active_profile is used.
+validates the schema of one role; for terminal roles `--resolve` additionally looks for the provider executable
+(it proves neither authorization, nor the model, nor the children's permissions). Chat roles require Orca's runtime and are checked at launch. Without `--profile`, active_profile is used.
 Do not combine `--validate` and `--resolve`.
 
 On an error, print this and finish without creating terminals:
@@ -375,24 +377,63 @@ for a reply to. A reply in your own terminal is not delivered: another role will
 see it. If the addressee's handle is unknown or not accepted by Orca — do not guess by
 title: `BLOCKED` to the user with the full payload.
 
-The role sends the message itself, without subagents. A payload that is multi-line,
-with quotes, `$` and backticks — pass it through a heredoc in single quotes so that
-the shell substitutes nothing:
+The role sends the message itself, without subagents. For a terminal recipient,
+use `orca terminal send`; for a chat recipient use `orca orchestration send`.
+Prefer the helper below: it selects the command by the explicit destination,
+uses the session's resolved CLI, and passes stdin as one argument without shell
+expansion (including quotes, `$`, backticks and trailing newlines):
 
 ```bash
-ORCA terminal send --terminal <handle> --enter --json --text "$(cat <<'PAYLOAD'
+node '<absolute skill-dir>/scripts/send-handoff.mjs' --to '<exact recipient address>' <<'ORCA_POD_PAYLOAD'
 <payload>
-PAYLOAD
-)"
+ORCA_POD_PAYLOAD
 ```
 
-Delivery is the same for Pi, Claude Code and Codex: Orca knows their TUIs and
-confirms the start of a turn (`turn_started` with `--wait-submit`).
+Choose a heredoc delimiter that does not occur on a line in the payload, or
+redirect a prepared payload file into stdin. Keep the workspace address and its
+environment with each role. For a terminal on a paired Orca, pass the address's
+`--environment` selector; for a chat on a paired server, when sending from an
+agent on another Orca use `--on <paired-server>` instead: `--environment` runs
+the mail command on that server and does not deliver it from the agent. When
+roles run on the same Orca host, use that host's local route (`--environment local`
+where necessary to override inherited remote settings). `local` is relative to
+the machine executing the command, never a portable host ID. Never infer a host
+from the active tab. `--on` and `--environment` cannot be combined in the helper.
 
-An accepted send (`accepted: true`) is not repeated because of silence/timeout. On an
-ambiguous transport error repeat the same command with `--retry-request <id>` from the
-response — then the message will not be delivered twice. One retry; a second error —
-stop and show the user the full payload.
+Terminal addresses are `term_…`. Chat addresses are the exact
+`orca_session_id:<sessionId>` mailbox supplied by Orca; do not use a chat tab ID,
+provider thread ID, or invent a terminal handle. `terminal read`, `wait`, `show`
+and the Planner mode helper cannot operate on chats. The legacy `TERMINALS:`
+label in handoff contracts carries explicit addresses, not shell variables.
+
+Terminal delivery requests `--wait-submit 5`: `accepted: true` proves input
+acceptance; `turn_started` proves the turn started. Chat delivery preserves the
+Orca mailbox receipt; successful enqueueing is not proof of task completion.
+Act on chat messages when Orca delivers them; no terminal polling for chats.
+
+An accepted send is not repeated because of silence/timeout. On an ambiguous
+transport error, use the same destination, host and payload with
+`--retry-request <id>` from the receipt. Without a replay ID do not blindly
+resend. One replay attempt; a second error — stop and show the user the payload.
+The helper preserves the full receipt and never retries automatically.
+
+### Chat callers and context transfer
+
+The Coordinator can run in a chat without a PTY. It does not need its own
+terminal handle to create role terminals or send their assignments. Role
+bootstrap follows each resolved role's `surface`. A mixed pipeline uses the same
+contracts and approvals. `--resolve` reports actual access and helper enforcement:
+chat roles require the Orca runtime, not a locally installed provider executable.
+The runtime checks chat/provider/model availability at launch; never silently
+replace a requested chat with a terminal or silently substitute a model.
+
+Shell variables and `export` do not transfer between windows or separate tool
+calls. Pass the resolved profile, LANGUAGE, reviewMode, skill paths, report path,
+addresses and task text explicitly in each first contract. Run every launcher in
+the target project directory; the new terminal's process supplies its own Orca
+identity. Never copy the caller's session/PTY identity into a new role. Use absolute,
+shell-quoted paths in launch commands; values remembered by the agent must be
+substituted as literal arguments, not assumed to survive in a later shell.
 
 ## Terminal setup and Coordinator exit
 
@@ -403,14 +444,31 @@ Add `.orca-pod/` to the project's `.gitignore` (in `test` — the sandbox's):
 idempotent and changes only an existing `.gitignore`; the Coordinator keeps configuration migration separate from project code. Report `ADDED` to the user in one line, `OK` and `SKIP` —
 silently. No script — a warning, not a stop.
 
-This is a new pipeline: create your own role terminals right away in the exact workspace;
-do not scan or adopt the user's live terminals. Terminals — only for the roles from
-`launch-provider.mjs --roles --profile <selected>`. For each such role:
+This is a new pipeline: create your own role sessions in the exact workspace;
+do not adopt the user's live terminals or chats. Get the role list and resolved
+`surface` from `launch-provider.mjs --roles --profile <selected>`.
+
+For each **chat** role:
+
+1. From the project root on the target execution host run `node '<absolute skill-dir>/scripts/launch-provider.mjs' --role <role-key> --profile <selected> --coordinator --worktree '<exact selector>' --environment '<address.environment>'`. The environment is relative to the machine executing the command. Paths in the bootstrap must exist on that host; do not reuse local paths on a remote host.
+2. Record the complete receipt: `result.outcome`, `result.operationId`, and
+   `pod.address` (`orca_session_id:<sessionId>`). The helper sends only bootstrap
+   instructions; no task starts until the first full contract arrives. A receipt
+   with `prompt.outcome: journaled` confirms that bootstrap was queued.
+3. Use `pod.address` in the contracts, including the role's own address. Do not
+   call terminal show/wait/read or the Codex Plan helper on it. Rename it, if
+   needed, with `ORCA chat rename --session <sessionId> --name <role> --json`.
+4. A lost launch response is replayed only with `--retry-launch <operationId>` and
+   the exact original role/profile/workspace and unchanged configuration. Keep the
+   original receipt. If Orca falls back to a terminal, the launcher stops before
+   sending work; report the mismatch and ask how to proceed. Do not relaunch blindly.
+
+For each **terminal** role, keep the provider launcher and its native settings:
 
 1. `ORCA terminal create --worktree <exact selector> --title <role> --json`.
 2. Immediately record the result and the handle; get any missing PTY metadata through
    `terminal show` of this handle, without searching by title.
-3. `ORCA terminal send --terminal <handle> --text 'exec node <absolute skill-dir>/scripts/launch-provider.mjs --role <role-key> --profile <selected profile> --coordinator --terminal <recorded handle>' --enter --json`.
+3. Send the shell command `exec node <launcher-path> --role <role-key> --profile <selected profile> --coordinator --terminal <recorded handle>` to that terminal with `--enter`. Shell-quote each substituted argument individually (including paths and profile names), then pass the complete command as one literal `--text` argument. Include the workspace address's `--environment` when targeting another Orca host.
 4. `ORCA terminal wait --terminal <handle> --for tui-idle --timeout-ms 60000 --json`;
    readiness is `satisfied: true`. `blockedReason: "agent-trust-workspace"` — the
    role's agent (Codex, Claude Code) asks whether to trust the folder: do not send the
@@ -432,7 +490,7 @@ LANGUAGE") and send Planner one full prompt per the contracts. After accepted:
 
 ```text
 PLANNER DISPATCHED — COORDINATOR EXITING
-Profile: <selected>; concurrent subagents: up to <maxSubagents> per role; full access: yes | no
+Profile: <selected>; concurrent subagents: up to <maxSubagents> per role; effective access: <per role, from --resolve>
 Language: <tag>
 Planner: handle=<handle>; ptyId/incarnationId if available
 Implementer: handle=<handle>; Reviewer: handle=<handle> | not configured; Chief Reviewer: handle=<handle> | not configured
@@ -511,7 +569,7 @@ brainstorming (Pi and Codex — `$superpowers:brainstorming`, Claude Code —
 `Skill brainstorming`). Use the selected specializations only when effective
 policy permits; otherwise do the research inline.
 
-**Codex Plan document saves.** Start and conduct planning and blitzes in verified
+**Codex Plan document saves (terminal surface only).** Start and conduct planning and blitzes in verified
 Plan. Before the first blitz, after any answer-driven revisions, and before
 approval of the exact final versions, finish the Plan turn with the marker
 `ORCA_POD_PLANNING_SAVE` on the first line of the final assistant message, followed
@@ -528,6 +586,14 @@ if the save or return fails. Wait for `PLANNING DOCUMENTS SAVED` before asking f
 approval or handing off. Never submit application changes through this phase or
 choose Codex's plan implementation action. Use fresh paths for revisions of
 already approved immutable documents.
+
+**Chat Planner.** Plan and run blitzes in the chat. Before approval, edit only the
+specification and plan documents, never application code. Save documents using the
+chat's file tools and show the actual paths before asking for approval. Do not emit
+`ORCA_POD_PLANNING_SAVE` or invoke the terminal Stop hook: neither is installed in
+chat sessions. If the host is in a mode that forbids document writes, ask the user
+to switch to a writable mode and wait; do not bypass host restrictions. Approvals,
+immutable versions, and the Implementer handoff remain the same.
 
 Write the specification without Git writes: the RAF path or the verbatim
 TASK DESCRIPTION, constraints, agreed requirements. Right after writing it, print its path on a separate line,
@@ -712,7 +778,7 @@ code as a whole, write `chief-attempt<N>.md` and issue:
 - **BLOCKED** — blocking findings after the applicable limit (two in `full`, three in `chief`) or an unresolvable conflict.
 
 Send the verdict to the Implementer by the handle from FINAL_READY (in `chief` mode —
-from REVIEW_REQUEST) with the `orca terminal send` command: the role will not see
+from REVIEW_REQUEST) with the `send-handoff.mjs` helper (`orca terminal send` for terminals, `orchestration send` for chats): the role will not see
 output in its own terminal. A previous FINAL_APPROVED does not cover new changes.
 
 ## Review reports

@@ -215,8 +215,8 @@ node <skill-dir>/../orca-pod/scripts/launch-provider.mjs --profiles
 The command checks every profile: all must be `valid: true`. For each
 profile tell the user its `summary` (roles, review mode, subagent limit).
 
-Coordinator-launched roles request each provider's supported YOLO mode with
-`--coordinator`. The Full access toggle applies to direct role launches. Setup
+Coordinator-launched terminal roles request each provider's supported YOLO mode with
+`--coordinator`. Chats use Orca permissions and instruction-only helper policy; the CLI cannot configure these per launch. The Full access toggle applies to direct terminal role launches. Setup
 does not modify global permission rules for the Coordinator workflow.
 
 Then add the pipeline's service folder to the project's `.gitignore` (idempotent; skip this step when the
@@ -269,3 +269,11 @@ Choosing helpers and models — [discovery-and-recommendations.md](references/di
 - Do not edit the YAML by hand instead of using the form, except on an explicit, narrowly scoped request.
 - Save the direct-launch access setting submitted through the form.
 - Do not write tests and do not run checks beyond `--profiles`/`--validate`/`--resolve`.
+
+## Role windows
+
+The form exposes a profile default window (`default_surface: terminal|chat`) and
+a role override (`surface`, omitted to inherit). Preserve both on edits; old
+configs default to terminal. Chat launches use Orca permissions and instruction-only
+helper policy, not the terminal launcher flags or Codex Stop hook. Include each
+role's resolved surface in the configuration summary.

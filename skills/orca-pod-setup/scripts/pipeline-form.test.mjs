@@ -118,7 +118,7 @@ function runLauncher(yaml, args) {
 }
 
 test("prefill: an empty file — one profile named default on Pi with the limit 6", () => {
-  assert.deepEqual(prefill(""), { activeProfile: "default", language: "auto", profiles: [{ name: "default", defaultProvider: "pi", maxSubagents: 6, fullAccess: true, roles: {} }] });
+  assert.deepEqual(prefill(""), { activeProfile: "default", language: "auto", profiles: [{ name: "default", defaultProvider: "pi", defaultSurface: "terminal", maxSubagents: 6, fullAccess: true, roles: {} }] });
 });
 
 test("prefill: the old format with a root default_provider", () => {
@@ -126,7 +126,7 @@ test("prefill: the old format with a root default_provider", () => {
   assert.equal(pre.activeProfile, "default");
   assert.equal(pre.profiles.length, 1);
   assert.deepEqual([pre.profiles[0].name, pre.profiles[0].defaultProvider, pre.profiles[0].maxSubagents], ["default", "claude-code", 6]);
-  assert.deepEqual(pre.profiles[0].roles.planner, { present: true, provider: "", model: "opus", thinking: "max", useSubagents: false, subagents: [] });
+  assert.deepEqual(pre.profiles[0].roles.planner, { surface: "", present: true, provider: "", model: "opus", thinking: "max", useSubagents: false, subagents: [] });
   assert.equal(pre.profiles[0].roles.reviewer.present, false);
 });
 

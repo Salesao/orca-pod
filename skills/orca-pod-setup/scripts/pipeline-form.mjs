@@ -35,7 +35,7 @@ const text = (value) => (typeof value === 'string' ? value.trim() : '');
 const emptyPrefill = (defaultProvider = 'pi') => ({
   activeProfile: 'default',
   language: LANGUAGE_DEFAULT,
-  profiles: [{ name: 'default', defaultProvider, maxSubagents: MAX_SUBAGENTS_DEFAULT, fullAccess: true, roles: {} }],
+  profiles: [{ name: 'default', defaultProvider, defaultSurface: 'terminal', maxSubagents: MAX_SUBAGENTS_DEFAULT, fullAccess: true, roles: {} }],
 });
 
 // There can be several profiles: the form shows all of them (tabs) and returns the whole file.
@@ -61,14 +61,14 @@ export function prefill(source = '') {
         return { name: agent, model: text(settings.model) || 'inherit', thinking: text(settings.thinking) || 'inherit', ...helperDefinition(settings) };
       });
       roles[role] = {
-        present: Boolean(block), provider: canonicalProgram(text(block?.provider)), model: text(block?.model),
+        surface: text(block?.surface), present: Boolean(block), provider: canonicalProgram(text(block?.provider)), model: text(block?.model),
         thinking: text(block?.thinking), useSubagents: block?.use_subagents === true, subagents,
       };
     }
     // A non-numeric limit is replaced by the default; a number out of range is shown by the form as an error.
     const limit = Number(text(profile.max_subagents));
     profiles.push({
-      name, defaultProvider: canonicalProgram(text(profile.default_provider)) || rootProvider,
+      name, defaultSurface: text(profile.default_surface) || 'terminal', defaultProvider: canonicalProgram(text(profile.default_provider)) || rootProvider,
       maxSubagents: text(profile.max_subagents) && Number.isFinite(limit) ? limit : MAX_SUBAGENTS_DEFAULT,
       fullAccess: profile.full_access === true, roles,
     });
@@ -111,6 +111,7 @@ export function validateServer(d, models, lang = 'en', providers = []) {
     else if (!PROFILE_NAME_PATTERN.test(name)) errs.push(say('srv.profile.nameFormat', { label }));
     else if (names.has(name)) errs.push(say('srv.profile.nameTaken', { label }));
     names.add(name);
+    if (profile.defaultSurface !== undefined && !['terminal', 'chat'].includes(profile.defaultSurface)) errs.push(say('srv.surface'));
     const limit = profile.maxSubagents;
     if (!Number.isInteger(limit) || limit < 1 || limit > MAX_SUBAGENTS_LIMIT) errs.push(say('srv.profile.limit', { label, max: MAX_SUBAGENTS_LIMIT }));
     if (profile.fullAccess !== undefined && typeof profile.fullAccess !== 'boolean') errs.push(say('srv.profile.fullAccess', { label }));
@@ -128,6 +129,7 @@ function validateRoles(d, lookup, say) {
     const r = d.roles && d.roles[key];
     const role = { role: key };
     if (!r) { if (REQUIRED_ROLE_KEYS.includes(key)) errs.push(say('srv.role.required', role)); continue; }
+    if (r.surface !== undefined && !['', 'terminal', 'chat'].includes(r.surface)) errs.push(say('srv.surface'));
     if (r.provider && !PROGRAMS[r.provider]) { errs.push(say('srv.role.unknownAgent', { ...role, agent: r.provider })); continue; }
     const program = r.provider || d.defaultProvider;
     const m = lookup(r.model, program);
@@ -172,12 +174,14 @@ export function buildYaml(d) {
   d.profiles.forEach((p, index) => {
     if (index) L.push('');
     L.push('  ' + p.name + ':', '    default_provider: ' + p.defaultProvider, '    max_subagents: ' + p.maxSubagents);
+    L.push('    default_surface: ' + (p.defaultSurface ?? 'terminal'));
     if (typeof p.fullAccess === 'boolean') L.push('    full_access: ' + p.fullAccess);
     L.push('    roles:');
     for (const key of ROLE_KEYS) {
       const r = p.roles[key];
       if (!r) continue; // an optional role that was not added
       L.push('      ' + key + ':');
+      if (r.surface) L.push('        surface: ' + r.surface);
       if (r.provider && r.provider !== p.defaultProvider) L.push('        provider: ' + r.provider);
       L.push('        model: ' + keyValue(r.model), '        thinking: ' + r.thinking, '        use_subagents: ' + (r.useSubagents ? 'true' : 'false'));
       if (r.subagents?.length) {
@@ -204,12 +208,12 @@ function pickSettings(submitted, models) {
         const r = p.roles[role];
         if (!r) continue;
         roles[role] = {
-          provider: r.provider || '', model: r.model, thinking: r.thinking, useSubagents: r.useSubagents,
+          surface: r.surface || '', provider: r.provider || '', model: r.model, thinking: r.thinking, useSubagents: r.useSubagents,
           ...(listed.has(r.model) ? {} : { modelSource: 'manual' }),
           subagents: (r.subagents ?? []).map((s) => ({ name: s.name, model: s.model, thinking: s.thinking, ...helperDefinition(s) })),
         };
       }
-      return { name: p.name, defaultProvider: p.defaultProvider, maxSubagents: p.maxSubagents, fullAccess: p.fullAccess === true, roles };
+      return { name: p.name, defaultSurface: p.defaultSurface ?? 'terminal', defaultProvider: p.defaultProvider, maxSubagents: p.maxSubagents, fullAccess: p.fullAccess === true, roles };
     }),
   };
 }

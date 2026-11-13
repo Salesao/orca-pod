@@ -343,8 +343,8 @@ test("--profiles: the active profile first, summary with full role names", () =>
     ["sol-quality", false, true],
   ]);
   const [claude, sol] = listing.profiles;
-  assert.equal(sol.summary, "Planner: Pi · openai-codex/gpt-5.6-sol · xhigh; Implementer: Pi · zai/glm-5.3-flash · high; Reviewer: Pi · openai-codex/gpt-5.6-sol · xhigh; Chief Reviewer: not configured; review mode reviewer; subagents up to 6");
-  assert.equal(claude.summary, "Planner: Claude Code · opus · max; Implementer: Claude Code · sonnet · high; Reviewer: not configured; Chief Reviewer: not configured; review mode self; subagents up to 12");
+  assert.equal(sol.summary, "Planner: Pi · openai-codex/gpt-5.6-sol · xhigh · terminal; Implementer: Pi · zai/glm-5.3-flash · high · terminal; Reviewer: Pi · openai-codex/gpt-5.6-sol · xhigh · terminal; Chief Reviewer: not configured; review mode reviewer; subagents up to 6");
+  assert.equal(claude.summary, "Planner: Claude Code · opus · max · terminal; Implementer: Claude Code · sonnet · high · terminal; Reviewer: not configured; Chief Reviewer: not configured; review mode self; subagents up to 12");
   assert.deepEqual([claude.defaultProvider, claude.maxSubagents, claude.reviewMode], ["claude-code", 12, "self"]);
   for (const profile of listing.profiles) assert.doesNotMatch(profile.summary, /\bImpl\b|\bRev\b/);
 });
