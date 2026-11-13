@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.9.9 - 2026-11-13
+
+### Added
+
+- **Chat and terminal role surfaces.** Setup selects a profile default and per-role overrides, allowing mixed
+  workflows. Existing configurations continue to use terminals.
+- **Surface-aware handoffs.** Roles use Orca's issued chat mailbox or terminal handle, preserve multiline
+  payloads literally, and retain delivery receipts and replay identifiers without resending on silence.
+
+### Changed
+
+- Chat roles launch with the requested provider, model and effort; unsupported launches and terminal fallbacks
+  are reported instead of silently replacing the requested surface. Chat Planners save and approve documents
+  without the terminal-only Codex Plan mode and Stop hook.
+- Chat permissions follow Orca's settings and helper policy is instruction-only: the current launch CLI does
+  not configure these per chat. Pi chat launch with explicit model selection is refused by the tested Orca
+  version; use a Pi terminal when a specific model is required.
+
+### Fixed
+
+- The catalog discovery regression test tolerates slower process startup under parallel test load while still
+  verifying that an unresponsive provider times out.
+
 ## 0.9.8 - 2026-11-11
 
 ### Added
