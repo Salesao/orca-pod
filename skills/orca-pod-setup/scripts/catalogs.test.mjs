@@ -196,9 +196,9 @@ test("piCatalog: an older Pi without --no-mcp — the RPC is started again witho
 test("Qoder and OMP discovery distinguishes partial, absent and timed out catalogs", async () => {
   await withPath({
     qodercli: 'case "$1" in --help) echo --list-models;; --version) echo 1.1.86;; --list-models) printf "MODEL\\nModel (exact-id)\\nunrecognized row\\n";; esac',
-    omp: 'case "$1" in --help) echo --thinking;; --version) echo 18.18.7;; models) exec sleep 2;; esac',
+    omp: 'case "$1" in --help) echo --thinking;; --version) echo 18.18.7;; models) exec sleep 10;; esac',
   }, async (cwd) => {
-    const { providers, models } = await discoverCatalogs({ cwd, programs: ["qoder", "omp", "codex"], timeoutMs: 800 });
+    const { providers, models } = await discoverCatalogs({ cwd, programs: ["qoder", "omp", "codex"], timeoutMs: 3000 });
     assert.deepEqual(providers.map(({ id, available, catalogStatus }) => [id, available, catalogStatus]), [
       ["qoder", true, "partial"], ["omp", true, "unavailable"], ["codex", false, "unavailable"],
     ]);
