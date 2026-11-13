@@ -149,4 +149,14 @@ orca-pod-setup/
 - [SKILL.md](SKILL.md): the full setup workflow.
 - [references/settings.md](references/settings.md): the description of all the configuration fields.
 
-Coordinator uses each provider’s supported YOLO mode. The `full_access` setting controls direct launches. The caps are five profiles and three preset specializations per role; custom helpers have no selection count cap. A complete backup is saved beside an upgraded YAML. The required `pi_task` window is installed by setup from `npm:pi-task`; use `pi install npm:pi-task` for manual recovery, then `/reload`.
+Coordinator requests supported YOLO for terminal roles; chats use Orca permissions. The `full_access` setting controls direct launches. The caps are five profiles and three preset specializations per role; custom helpers have no selection count cap. A complete backup is saved beside an upgraded YAML. The required `pi_task` window is installed by setup from `npm:pi-task`; use `pi install npm:pi-task` for manual recovery, then `/reload`.
+
+### Chats and terminals
+
+The setup form has a default window selector per profile and a per-role override.
+`default_surface: terminal|chat` defaults to `terminal` for existing configs;
+`roles.<role>.surface` overrides it. Mixed pipelines use the same handoff contracts.
+Chats receive messages through their `orca_session_id:` mailbox, terminals through
+`term_` handles. The launcher reports chat access as `host-default` and helper
+policy as instruction-only: terminal YOLO flags and Stop hooks do not apply to chats.
+Chat Planners save documents with file tools and request approval in the chat.

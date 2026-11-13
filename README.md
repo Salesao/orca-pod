@@ -72,7 +72,7 @@ the Planner turns it into a proper spec and plan). A path takes priority over te
 | **Configure** | `/orca-pod-setup` | `$orca-pod-setup` | `/skill:orca-pod-setup` |
 | **Run** | `/orca-pod <task>` | `$orca-pod <task>` | `/skill:orca-pod <task>` |
 
-Then switch to the Planner terminal in Orca. The Planner writes the spec and the plan and asks you multiple-choice
+Then switch to the Planner session in Orca. The Planner writes the spec and the plan and asks you multiple-choice
 questions before each approval (a [plan blitz](#plan-blitz)); after you approve, the Implementer carries the plan
 out. The run ends with a terminal status: `FINAL_APPROVED` (the final reviewer approved), `SELF_VERIFIED` (there
 are no reviewers and the Implementer's self-check passed), `COMPLETED_UNVERIFIED` (required checks unavailable after retry and fallback) or `BLOCKED` (the review did not reach agreement; you
@@ -172,7 +172,7 @@ Per agent:
 | Agent | What it needs |
 | --- | --- |
 | Claude Code | `claude` on `PATH` or in a usual install folder (`~/.local/bin`, `~/.claude/local`, Homebrew, nvm and others). The helper agents from `skills/orca-pod/agents/claude/` are linked into `~/.claude/agents/` by `orca-pod-setup`. |
-| Codex | `codex` on `PATH` or in a usual install folder. The `orca_*` helpers are registered for each role's session. For direct launches inside a sandbox, setup offers the rule `prefix_rule(pattern=["orca"], decision="allow")` in `~/.codex/rules/default.rules`. Coordinator launches request Full Access. Planner requires the verified Plan-mode and document-save controls described below. |
+| Codex | `codex` on `PATH` or in a usual install folder. The `orca_*` helpers are registered for terminal role sessions; chat helper policy is instruction-only. For direct launches inside a sandbox, setup offers the rule `prefix_rule(pattern=["orca"], decision="allow")` in `~/.codex/rules/default.rules`. Coordinator requests Full Access for terminals. Terminal Planner uses the verified Plan-mode and document-save controls described below; chat uses Orca permissions and file tools. |
 | Pi | Requires the `pi-task` question package alongside the Lens diagnostics and pi-subagents capabilities. The install command and setup bootstrap install `npm:pi-task` when absent. Verified with Pi 1.4.0 and pi-subagents 0.81.0. Foreground helpers inherit registered model providers without loading ambient extensions; incompatible routes run inline. |
 | Qoder | `qodercli` on `PATH` or in a usual install folder; use `provider: qoder` in YAML. Models come from `qodercli --list-models`; thinking uses `default`. Selected helper definitions are registered for the session. |
 | OMP | `omp` on `PATH` or in a usual install folder; use `provider: omp`. Models and supported thinking levels come from `omp models --json`. Setup links bundled agents; session policy controls native delegation. |
@@ -264,7 +264,7 @@ saves it, checks every profile and offers the Codex rule when a Codex role needs
    new roles start with it off. Select up to three presets and add as many custom helpers as you need. With the
    switch off, the role works inline. **Concurrent subagents** is a separate setting: 6 by default, 1–100.
    See [Helpers](#helpers).
-6. **Review the access policy.** Coordinator launches request the supported YOLO mode; **Full access** controls
+6. **Review the access policy.** Coordinator launches request the supported YOLO mode for terminal roles; chats use Orca permissions; **Full access** controls
    direct launches outside the Coordinator. See [Full access](#full-access).
 7. Press **Generate YAML**. The form hands the result to the agent, which validates and saves the file; the skill
    then adds `.orca-pod/` to your `.gitignore` if the project already has one (it never creates one).
@@ -321,7 +321,7 @@ description. What happens next:
 
 1. The Coordinator checks the config, asks which profile to use (only if there are several) and which extra skills
    each role should use, opens a terminal for each configured role, sends the task to the Planner and exits.
-2. Switch to the Planner terminal in Orca. The Planner researches the code, writes the spec and the plan, and before each
+2. Switch to the Planner session in Orca. The Planner researches the code, writes the spec and the plan, and before each
    approval runs a [plan blitz](#plan-blitz): short rounds of multiple-choice questions. Answer them there.
 3. After approval the Implementer takes over, runs the waves, and sends stages to review. The run ends with a final
    status: `FINAL_APPROVED`, `SELF_VERIFIED`, `COMPLETED_UNVERIFIED` or `BLOCKED` (the review did not converge; you decide).
@@ -365,12 +365,12 @@ The questions appear in each agent's own question window:
 | Agent | Question window | Notes |
 | --- | --- | --- |
 | Claude Code | `AskUserQuestion` | Built in. |
-| Codex | `request_user_input` in Plan, `request_user_input_async` outside Plan | Planner enters verified Plan before its first task. Document saves briefly use Default and verify the return to Plan. |
+| Codex | `request_user_input` in Plan, `request_user_input_async` outside Plan | Terminal Planner enters verified Plan before its first task. Chat Planner uses its available tools and permissions. |
 | Pi | `pi_task` | Required standalone pi-task dependency, installed during setup; legacy `orca_pod_ask` or text are runtime fallbacks. |
 | Qoder | `AskUserQuestion` | Native window when exposed. |
 | OMP | `ask` | Native window in interactive sessions. |
 
-For Codex, the Planner enters real Plan mode before receiving its task. Document saves briefly switch the same
+For Codex in a terminal, the Planner enters real Plan mode before receiving its task. Document saves briefly switch the same
 session to Default, save and verify the named files, and verify the return to Plan before continuing. Folder or
 planning-hook trust may require an answer in that role's terminal. If these controls cannot be verified, the
 handoff is blocked. See [provider compatibility](docs/compatibility/2026-11-11-provider-capabilities.md).
@@ -411,7 +411,7 @@ The protocol stays English whatever you choose: the `ROLE:` and `LANGUAGE:` prom
 ## Full access
 
 > [!WARNING]
-> Coordinator launches each role with the provider's supported YOLO option. These
+> Coordinator launches terminal roles with the provider's supported YOLO option. Chats use Orca permissions, which can be checked in the chat or in Settings → Agents; the launcher cannot set them per launch. These
 > sessions can perform edits and commands without the usual approval prompts.
 
 Codex uses `--dangerously-bypass-approvals-and-sandbox`, Claude Code and Qoder
@@ -574,3 +574,13 @@ CI runs the same command on Node 20.
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+### Chats and terminals
+
+The setup form has a default window selector per profile and a per-role override.
+`default_surface: terminal|chat` defaults to `terminal` for existing configs;
+`roles.<role>.surface` overrides it. Mixed pipelines use the same handoff contracts.
+Chats receive messages through their `orca_session_id:` mailbox, terminals through
+`term_` handles. The launcher reports chat access as `host-default` and helper
+policy as instruction-only: terminal YOLO flags and Stop hooks do not apply to chats.
+Chat Planners save documents with file tools and request approval in the chat.
