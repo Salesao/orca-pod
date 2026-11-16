@@ -6,3 +6,5 @@ graphify-out/
 .errors/
 reports/
 docs/
+.qoder/
+.playwright-cli/
