@@ -38,7 +38,7 @@
 и добавить **любое количество своих помощников**. Роль помощника и его инструкции задаются прямо в форме вместе
 с моделью и thinking и сохраняются в проекте. Параллельность задаётся отдельно: **6 по умолчанию, диапазон 1–100**.
 
-В репозитории три скилла для ИИ-агентов. Скилл — это папка с инструкциями, которую ваш агент загружает, когда вы
+В репозитории четыре скилла для ИИ-агентов. Скилл — это папка с инструкциями, которую ваш агент загружает, когда вы
 вводите её имя, например `/orca-pod`:
 
 | Скилл | Что он делает для вас |
@@ -46,6 +46,7 @@
 | [`orca-pod`](skills/orca-pod/README.ru.md) | Запускает задачу. Сессия, из которой вы её запустили, выступает как Coordinator: открывает по одному терминалу Orca на роль и передаёт задачу Planner. |
 | [`orca-pod-setup`](skills/orca-pod-setup/README.ru.md) | Создаёт файл настроек проекта `.orca-pod/orca-pod.yaml` через форму в браузере. |
 | [`plan-blitz`](skills/plan-blitz/README.ru.md) | Проводит вас по спецификации или плану перед утверждением; вопросы с вариантами ответа задаёт только там, где есть настоящий выбор. |
+| [`orca-pod-memory`](skills/orca-pod-memory/README.ru.md) | Хранит знания проекта и результаты задач с локальным поиском. [Инструкция](skills/orca-pod-memory/SKILL.md). |
 
 ## Быстрый старт
 
@@ -54,7 +55,7 @@
 требования перечислены в разделе [Требования](#требования).
 
 ```bash
-npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
+npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
 ```
 
 **2. Настройка.** Откройте проект в агенте и запустите скилл настройки. Он запишет `.orca-pod/orca-pod.yaml`
@@ -189,10 +190,10 @@ orca-pod не возобновляет прерванный запуск. Есл
 ## Установка
 
 ```bash
-npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
+npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
 ```
 
-Команда ставит три скилла, только для Claude Code, Codex и Pi, глобально и без вопросов. Оба скилла пайплайна
+Команда ставит четыре скилла, только для Claude Code, Codex и Pi, глобально и без вопросов. Оба скилла пайплайна
 обязательны: `orca-pod-setup` ищет `orca-pod` рядом с собой и отказывается стартовать без него, а `orca-pod`
 вызывает `orca-pod-setup`, когда в проекте нет конфига. `plan-blitz` необязателен: без него Planner одной строкой
 предупреждает вас и просит утвердить спецификацию и план обычным текстом.
@@ -535,10 +536,10 @@ node ~/.agents/skills/orca-pod/scripts/launch-provider.mjs --profiles
 ## Удаление
 
 ```bash
-npx skills remove orca-pod orca-pod-setup plan-blitz -g -y
+npx skills remove orca-pod orca-pod-setup plan-blitz orca-pod-memory -g -y
 ```
 
-Команда удаляет три скилла и их ссылки в папках всех агентов, в том числе после установки с `--all`. Если CLI не
+Команда удаляет четыре скилла и их ссылки в папках всех агентов, в том числе после установки с `--all`. Если CLI не
 запускается, удалите ссылки вручную: сначала выведите их список, потом удалите именно их.
 
 ```bash
@@ -547,7 +548,7 @@ find "$HOME" -maxdepth 5 -type l \( -name 'orca-pod*' -o -name plan-blitz \) \( 
 # 2. проверив список, удалить их
 find "$HOME" -maxdepth 5 -type l \( -name 'orca-pod*' -o -name plan-blitz \) \( -lname '*/.agents/skills/orca-pod*' -o -lname '*/.agents/skills/plan-blitz' \) -delete
 # 3. удалить папки скиллов
-rm -r ~/.agents/skills/orca-pod ~/.agents/skills/orca-pod-setup ~/.agents/skills/plan-blitz
+rm -r ~/.agents/skills/orca-pod ~/.agents/skills/orca-pod-setup ~/.agents/skills/orca-pod-memory ~/.agents/skills/plan-blitz
 ```
 
 Настройка также создала ссылки на субагентов и на расширение Pi, а `npx skills remove` их не трогает. Удалите их

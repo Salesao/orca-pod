@@ -16,7 +16,7 @@ const read = (file) => readFileSync(join(ROOT, file), "utf8");
 const posix = (path) => path.split(sep).join("/");
 
 const ROOT_README = "README.md";
-const SKILL_READMES = ["skills/orca-pod/README.md", "skills/orca-pod-setup/README.md", "skills/plan-blitz/README.md"];
+const SKILL_READMES = ["skills/orca-pod/README.md", "skills/orca-pod-setup/README.md", "skills/plan-blitz/README.md", "skills/orca-pod-memory/README.md"];
 const ALL_READMES = [ROOT_README, ...SKILL_READMES];
 
 /** Every README.md (and translation such as README.ru.md) in the repository, outside .git, node_modules, .orca-pod. */
@@ -87,9 +87,9 @@ function withHome(run) {
 }
 
 const PI_BOOTSTRAP = 'node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"';
-const TARGETED_INSTALL = 'npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi && ' + PI_BOOTSTRAP;
+const TARGETED_INSTALL = 'npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory -a claude-code codex pi && ' + PI_BOOTSTRAP;
 const ALL_INSTALL = 'npx skills add Salesao/orca-pod -g --all && ' + PI_BOOTSTRAP;
-const REMOVE = "npx skills remove orca-pod orca-pod-setup plan-blitz -g -y";
+const REMOVE = "npx skills remove orca-pod orca-pod-setup plan-blitz orca-pod-memory -g -y";
 
 /** Every markdown document of the skills plus the root README (the docs a newcomer can read). */
 function markdownDocs(dir = join(ROOT, "skills")) {
@@ -147,7 +147,7 @@ test("the skill READMEs link back to the root README", () => {
   }
 });
 
-test("the root README links to the three skill READMEs, their SKILL.md files, the settings reference and the LICENSE", () => {
+test("the root README links to the four skill READMEs, their SKILL.md files, the settings reference and the LICENSE", () => {
   const targets = linkTargets(read(ROOT_README)).map((target) => target.split("#")[0]);
   for (const expected of [
     "skills/orca-pod/README.md",
@@ -156,6 +156,8 @@ test("the root README links to the three skill READMEs, their SKILL.md files, th
     "skills/orca-pod-setup/SKILL.md",
     "skills/plan-blitz/README.md",
     "skills/plan-blitz/SKILL.md",
+    "skills/orca-pod-memory/README.md",
+    "skills/orca-pod-memory/SKILL.md",
     "skills/orca-pod-setup/references/settings.md",
     "LICENSE",
   ]) {
@@ -426,8 +428,8 @@ test(".gitignore keeps the service folders out of the repository", () => {
   for (const entry of ["node_modules/", ".orca-pod/"]) assert.ok(lines.includes(entry), `.gitignore should list ${entry}`);
 });
 
-test("the three skills have the files `npx skills` needs: SKILL.md with name and description", () => {
-  for (const skill of ["orca-pod", "orca-pod-setup", "plan-blitz"]) {
+test("the four skills have the files `npx skills` needs: SKILL.md with name and description", () => {
+  for (const skill of ["orca-pod", "orca-pod-setup", "plan-blitz", "orca-pod-memory"]) {
     const text = read(`skills/${skill}/SKILL.md`);
     const front = /^---\n([\s\S]*?)\n---\n/.exec(text);
     assert.ok(front, `skills/${skill}/SKILL.md has no frontmatter`);
@@ -444,7 +446,7 @@ test("the three skills have the files `npx skills` needs: SKILL.md with name and
 
 const RU_README = "README.ru.md";
 const ASSETS = "assets";
-const SKILLS = ["orca-pod", "orca-pod-setup", "plan-blitz"];
+const SKILLS = ["orca-pod", "orca-pod-setup", "plan-blitz", "orca-pod-memory"];
 /** [English README, its Russian translation] for the root and for every skill. */
 const PAIRS = [[ROOT_README, RU_README], ...SKILLS.map((skill) => [`skills/${skill}/README.md`, `skills/${skill}/README.ru.md`])];
 const AUTONYM_RE = "\\u0420\\u0443\\u0441\\u0441\\u043a\\u0438\\u0439"; // the autonym of Russian, as a regex source

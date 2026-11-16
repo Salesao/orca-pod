@@ -38,7 +38,7 @@ The setup form supports **up to five profiles**, **three preset helper specializ
 **any number of custom helpers**. Define a helper's role and instructions in the form, choose its model and
 thinking, and save it with the project. Concurrent helpers are controlled separately: **6 by default, 1–100**.
 
-The repository contains three agent skills. A skill is a folder of instructions that your coding agent loads when
+The repository contains four agent skills. A skill is a folder of instructions that your coding agent loads when
 you type its name, for example `/orca-pod`:
 
 | Skill | What it does for you |
@@ -46,6 +46,7 @@ you type its name, for example `/orca-pod`:
 | [`orca-pod`](skills/orca-pod/README.md) | Runs a task. The session where you start it acts as the Coordinator: it opens one Orca terminal per role and hands the task to the Planner. |
 | [`orca-pod-setup`](skills/orca-pod-setup/README.md) | Writes the project's config file, `.orca-pod/orca-pod.yaml`, through a browser form. |
 | [`plan-blitz`](skills/plan-blitz/README.md) | Walks you through a spec or a plan before you approve it, with multiple-choice questions only where there is a real choice. |
+| [`orca-pod-memory`](skills/orca-pod-memory/README.md) | Keeps project knowledge and task results searchable in local files. See its [skill instructions](skills/orca-pod-memory/SKILL.md). |
 
 ## Quick start
 
@@ -54,7 +55,7 @@ Node.js 18 or newer and git for the installer (your project does not have to be 
 [Requirements](#requirements) lists the rest.
 
 ```bash
-npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
+npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
 ```
 
 **2. Configure.** Open your project in the agent and run the setup skill. It writes `.orca-pod/orca-pod.yaml`
@@ -186,10 +187,10 @@ of the skill.
 ## Install
 
 ```bash
-npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
+npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
 ```
 
-This installs the three skills, only for Claude Code, Codex and Pi, globally and without prompts. Both skills of
+This installs the four skills, only for Claude Code, Codex and Pi, globally and without prompts. Both skills of
 the pipeline are required: `orca-pod-setup` looks for `orca-pod` next to itself and refuses to start without it,
 and `orca-pod` calls `orca-pod-setup` when a project has no config. `plan-blitz` is optional: without it the
 Planner warns you in one line and asks you to approve the spec and the plan in plain text.
@@ -522,10 +523,10 @@ node ~/.agents/skills/orca-pod/scripts/launch-provider.mjs --profiles
 ## Uninstall
 
 ```bash
-npx skills remove orca-pod orca-pod-setup plan-blitz -g -y
+npx skills remove orca-pod orca-pod-setup plan-blitz orca-pod-memory -g -y
 ```
 
-This removes the three skills and their links in every agent's folder, including after a `--all` install. If you
+This removes the four skills and their links in every agent's folder, including after a `--all` install. If you
 cannot run the CLI, delete the links by hand: list them first, then delete exactly those.
 
 ```bash
@@ -534,7 +535,7 @@ find "$HOME" -maxdepth 5 -type l \( -name 'orca-pod*' -o -name plan-blitz \) \( 
 # 2. after checking the list, delete them
 find "$HOME" -maxdepth 5 -type l \( -name 'orca-pod*' -o -name plan-blitz \) \( -lname '*/.agents/skills/orca-pod*' -o -lname '*/.agents/skills/plan-blitz' \) -delete
 # 3. delete the skill folders
-rm -r ~/.agents/skills/orca-pod ~/.agents/skills/orca-pod-setup ~/.agents/skills/plan-blitz
+rm -r ~/.agents/skills/orca-pod ~/.agents/skills/orca-pod-setup ~/.agents/skills/orca-pod-memory ~/.agents/skills/plan-blitz
 ```
 
 Setup also created links to the helper agents and to the Pi extension, and `npx skills remove` does not touch

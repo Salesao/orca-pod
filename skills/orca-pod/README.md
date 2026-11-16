@@ -157,3 +157,7 @@ Chats receive messages through their `orca_session_id:` mailbox, terminals throu
 `term_` handles. The launcher reports chat access as `host-default` and helper
 policy as instruction-only: terminal YOLO flags and Stop hooks do not apply to chats.
 Chat Planners save documents with file tools and request approval in the chat.
+
+## Project memory
+
+Setup prepares local templates, a search index and managed project instructions. After significant work, use the sibling [orca-pod-memory](../orca-pod-memory/README.md) skill to search, verify sources and synchronize memory with graphify.

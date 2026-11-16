@@ -31,12 +31,13 @@ The skill solves this with a visual form in the browser. The form takes the mode
 2. Connects the components that do not lie in the skill's folder. Both scripts are idempotent; they do not replace existing regular files or other people's live links and write `SKIP` instead; `link-agents.sh` replaces a dangling link (`RELINK`).
    - `orca-pod/scripts/link-agents.sh` links the helper agents to the Claude Code and Pi directories. A dangling link left by a removed skill version is replaced with ours (`RELINK`); a live link into another installed version stays (`SKIP`).
    - `scripts/link-pi-extension.sh` points `~/.pi/agent/extensions/orca-pod-setup` at the `pi-extension/` of this skill. When Pi is not installed (no `pi` in `PATH` and no `~/.pi/agent`) it does nothing. The extension works with Pi before and after its 0.74 package rename (`@mariozechner/*` → `@earendil-works/*`). Setup runs `scripts/ensure-pi-task.mjs` to install the required published question package with `pi install npm:pi-task` when absent. It preserves a working npm, pinned, Git or local installation, verifies the files and reports installation errors. Reload Pi after a new installation.
-3. Opens the setup form.
+3. Ensures graphify is available and checks an existing readable graph or builds the initial structural graph with `scripts/ensure-graphify.mjs`; failure stops setup.
+4. Opens the setup form.
    - In Pi it is the `orca_pod_setup` tool; it opens the form in the browser.
    - In Claude Code (and Codex) it is `scripts/setup-form.mjs`, which also prints the form address as `FORM URL:` (open it by hand if the browser does not); Claude Code runs it in the background. Codex runs it as an ordinary command and waits for it, with elevated permissions (it asks you once): inside the Codex sandbox the form cannot open its local port and Pi cannot list its models.
-4. Saves the whole `orca-pod.yaml` with all the profiles from the form. Before writing it checks whether the file has changed and shows "was → now". It does not write secrets into the file.
-5. Checks the result with `launch-provider.mjs --profiles` and for each profile reports the roles, the review mode (`full`, `reviewer`, `chief` or `self`) and the subagent limit.
-7. Adds `.orca-pod/` to the project's `.gitignore` (`scripts/ensure-gitignore.sh`; skipped without Git). The pipeline writes the review reports there. The script changes only an existing `.gitignore`: if there is none, it does not create it, and if the folder is already ignored, it changes nothing.
+5. Saves the whole `orca-pod.yaml` with all profiles, first checking for concurrent changes and showing "was → now"; it writes no secrets. It validates all profiles with `launch-provider.mjs --profiles` and reports their roles, review mode and subagent limit.
+6. After a submitted and valid configuration, checks the sibling memory skill, initializes and lints `.orca-pod/memory/`, builds its search index and manages the project's `AGENTS.md` memory block. It then adds `.orca-pod/` to an existing `.gitignore` using `scripts/ensure-gitignore.sh` (skipped without Git; it never creates `.gitignore`). Cancellation or invalid profiles do not initialize memory.
+7. Summarizes the configuration and the results of each mandatory setup step.
 
 How the form is organised:
 
@@ -44,7 +45,7 @@ How the form is organised:
 - **Roles.** For each role of a profile you set the agent (default, Pi, Claude Code or Codex), the model, thinking, `use_subagents` and the set of helpers. The `reviewer` and `chief_reviewer` roles are optional: they are added and removed with buttons, and they appear in the file only when added.
 - **Custom helpers.** “Add custom helper” opens fields for the name, role description and multiline instructions, plus model and thinking. The definition is saved in the project YAML and registered for the launched session in Pi, Claude Code, Codex, Qoder or OMP. No separate agent file is needed. Turn off “Define the helper’s role in this form” to select an installed native definition by name. Planning and review helpers receive read-only tools; helper delegation stays disabled. Custom helpers have no selection count cap; up to three preset specializations can be selected alongside them. Concurrency is configured separately.
 - **Language.** The form is bilingual (English and Russian) with an EN/RU switch in the header; its language follows the `language` field of the config, or the browser language when it is `auto`. A language chosen with the EN/RU switch is remembered in this browser during the form session and takes precedence over both.
-- **Done.** Press "Generate YAML": the form hands the result to the agent, which validates and saves the file (steps 4 and 5).
+- **Done.** Press "Generate YAML": the form hands the result to the agent, which validates and saves the file (step 5).
 
 ## What it does not do
 
@@ -131,6 +132,8 @@ orca-pod-setup/
 ├── pi-extension/
 │   ├── index.js                          the orca_pod_setup tool for Pi (opens the form)
 └── scripts/
+    ├── ensure-graphify.mjs               checks graphify and builds the structural map
+    ├── ensure-project-instructions.mjs   manages the project memory block in AGENTS.md
     ├── ensure-gitignore.sh               adds .orca-pod/ to the project's .gitignore
     ├── link-pi-extension.sh              connects the extension to Pi
     ├── setup-form.mjs                    starts the form for Claude Code and Codex
@@ -160,3 +163,7 @@ Chats receive messages through their `orca_session_id:` mailbox, terminals throu
 `term_` handles. The launcher reports chat access as `host-default` and helper
 policy as instruction-only: terminal YOLO flags and Stop hooks do not apply to chats.
 Chat Planners save documents with file tools and request approval in the chat.
+
+## Project memory
+
+Setup prepares local templates, a search index and managed project instructions. After significant work, use the sibling [orca-pod-memory](../orca-pod-memory/README.md) skill to search, verify sources and synchronize memory with graphify.
