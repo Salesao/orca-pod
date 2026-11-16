@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.0.0 - 2026-11-16
+
+### Added
+
+- **Project memory skill.** `orca-pod-memory` keeps durable knowledge in `.orca-pod/memory`: current work in
+  `activeContext.md`, durable pages, chronology, accepted ADRs in `deltas/` and immutable task results in
+  `records/`. A derived lexical index answers `memory-query search`, `show`, `recent` and `context` without an
+  extra model; a stale index stays searchable with a warning instead of passing for current content.
+- **Graph map and project instructions in setup.** Setup checks `graphify-out/graph.json` or builds the initial
+  structural map, then initializes the memory templates, runs structural lint and an index-only sync, and keeps
+  one marked block in the project's `AGENTS.md` without overwriting user edits.
+
+### Changed
+
+- **Memory in the pipeline.** Each first handoff carries `MEMORY:` paths and the sibling memory skill. Only the
+  Implementer writes memory, and memory, index and graph maintenance stop while a review is active; the final
+  record follows the final verdict. A missing memory or graph stops preparation instead of being initialized
+  silently.
+- `memory-sync.mjs` saves one prepared record, updates the index and runs `graphify update .` once, reporting
+  record, index, graph and overall results separately.
+- Setup gained two ordered steps with their results in its summary, and the combined install command now
+  includes `orca-pod-memory`.
+
 ## 0.9.9 - 2026-11-13
 
 ### Added
