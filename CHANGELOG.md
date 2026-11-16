@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.0.1 - 2026-11-16
+
+### Added
+
+- **Quick configuration form.** The `orca-pod-form` skill reopens the existing browser form for an already
+  configured project without repeating dependency setup, graphify, memory initialization or role launches.
+  It is available in Pi, Claude Code, Codex, Qoder and OMP; model catalogs are discovered as before.
+- **Safe form-only saving.** The quick form leaves configuration unchanged on cancel or timeout, validates all
+  profiles before saving and checks for a changed file immediately before replacement. Older configurations
+  requiring migration or profile reduction are directed to full setup instead of being changed on opening.
+
+### Changed
+
+- **Qoder terminal permissions.** Qoder terminal roles now always request
+  `--dangerously-skip-permissions`, even when `full_access` is `false`. Other direct terminal launches still
+  follow the profile's `full_access` setting. Qoder also offers its global `--reasoning-effort` levels:
+  `none`, `low`, `medium`, `high`, `xhigh` and `max`.
+- The targeted installer includes `orca-pod-form` and Qoder. The documentation includes a non-destructive
+  OMP skill link, agent-specific invocations and a warning that regenerated YAML does not retain comments.
+- Local `.qoder/` and `.playwright-cli/` folders are ignored by Git.
+
 ## 1.0.0 - 2026-11-16
 
 ### Added
