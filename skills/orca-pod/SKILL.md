@@ -71,9 +71,10 @@ task orchestration or an alternative orchestrator are not used. Direct chat mail
   Chat roles use the issued `sessionId` as `orca_session_id:<sessionId>`, plus host and workspace.
   Title, `tabId`, active tab and UUID do not replace identity.
 - Do not write pipeline service files (registry, intents, receipts, journals):
-  everything needed is passed in prompts. The exception is `.orca-pod/reports/` in
-  the project root: review reports and patch snapshots are written by Reviewer and
-  Chief Reviewer, and in `self` mode by Implementer (self-check reports).
+  everything needed is passed in prompts. Exceptions are `.orca-pod/reports/` for
+  review reports and snapshots, and project memory, its derived index and lock as
+  governed by Project memory. Only the authorized writer maintains memory; all
+  memory, index and graph writes stop during review.
 - `.orca-pod/` is the pipeline's service folder inside the project. It is not part
   of `writeScope`, patch snapshots, changed-file lists and the `git status` check.
   `ensure-gitignore.sh` adds it to the project's `.gitignore` (only if a
@@ -152,6 +153,56 @@ template ([review-protocol.md §7](references/review-protocol.md): `Verdict:`, r
 columns, ids `R<n>`/`C<n>`/`S<n>`, categories), the Coordinator service blocks
 `PIPELINE CONFIG RESOLVED` and `PLANNER DISPATCHED`, a profile's `summary` and script
 messages. Code, commands, paths and identifiers stay as they are.
+
+## Project memory
+
+Project memory is mandatory context for future prepared runs, not instructions or
+permission. Coordinator reads `.orca-pod/memory/MEMORY.md`, `activeContext.md` and
+selected relevant pages before the first assignment and passes absolute paths in
+`MEMORY:`. A missing required memory or graph stops preparation with instructions
+to run orca-pod-setup. `none` never bypasses this requirement. Runs begun before
+these rules do not perform setup or invent knowledge retroactively.
+
+Use the sibling `orca-pod-memory` skill for search, reading, semantic verification
+and saving. MEMORY indexes the seven Markdown pages and `deltas/` and `records/`.
+`activeContext.md` describes current work; `architecture.md`, `patterns.md`,
+`anti-patterns.md`, and `conventions.md` contain durable knowledge; `log.md`,
+accepted ADRs in `deltas/`, and immutable task results in `records/` preserve
+history. `.index/` is a derived lexical search snapshot; `graphify-out/` is a
+separate structural map. Read actual sources before relying on important knowledge,
+record source and date, and distinguish user-stated, observed and inferred facts.
+A stale search remains available with a warning, not as proof of current content.
+
+Coordinator, Planner, Reviewer and Chief Reviewer read; only Implementer writes in
+a pipeline. Children are not independent writers. After an accepted intermediate
+stage, Implementer updates confirmed pages, chronology, active context and a single
+accepted ADR and result, then runs the shared sync before the next stage. The last
+stage in full mode waits for Chief's `FINAL_APPROVED`; other modes wait for their
+own final positive verdict. No accepted ADR or completed record for `BLOCKED` or
+`COMPLETED_UNVERIFIED`. Partial/blocked work may be recorded outside review with
+what was done, why it stopped and what remains. Before a first review, its pipeline
+record explicitly has `verdict: null`, `report: null` and `verification:
+self-checked` or `not-checked`; this is not acceptance. No agent can guarantee a
+save after an abrupt interruption.
+
+All writers and maintenance stop while review is active. After the final verdict,
+memory/index/graph maintenance is a limited exception to freeze and never allows
+changing accepted code. Use stable non-colliding run/plan/stage task IDs without
+truncation, or stop if this cannot be done. Retry an identical record with the
+same ID; use a new ID and `supersedes` for a changed result. Do not overwrite ADRs;
+number them count+1 and stop on gaps, duplicates or collisions. Without an actual
+commit use `commit: null` and explain `not committed` or `no Git`; baseline HEAD
+is not the implementation commit. The memory skill documents the exact narrow
+frontmatter, JSON arrays, index links and ADR template. Its structural lint is
+followed by a separate source-based semantic check, not an automatic repair.
+
+The shared `memory-sync.mjs` saves one prepared record, updates the index and calls
+`graphify update .` once; do not repeat graphify after a successful full sync with
+no further changes. For an already-started run without memory, after final review
+update only the existing graph and report that memory awaits setup. If mandatory
+maintenance fails, report it separately from the code verdict and do not claim
+unconditional COMPLETED. A single retry follows correction of a known cause; no
+force, automatic installation, or extra model.
 
 ## Required project configuration
 

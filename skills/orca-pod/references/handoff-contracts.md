@@ -21,13 +21,19 @@ The `LANGUAGE: <tag>` line sets the language the role uses to talk to people
 writes it into the first Planner prompt; from there the same tag, without
 recomputing, goes into the first Implementer contract (from Planner), the first
 REVIEW_REQUEST (from Implementer) and FINAL_READY (from Reviewer). Repeat
-messages do not carry it.
+messages do not carry it. Each first prompt also carries `MEMORY:` with absolute
+paths to the index, active context and selected pages or records, plus the sibling
+`orca-pod-memory` skill. Roles read these as context, not permissions. `none` does
+not waive mandatory preparation for future runs; a pre-existing run may explicitly
+lack memory without retroactive setup.
 
 ## First Planner prompt (from Coordinator)
 
 ```text
 ROLE: Planner — not Coordinator: the config, sandbox and terminals are ready; do not run orca terminal create, launch-provider.mjs or test-sandbox.mjs.
 TASK: <RAF path or the verbatim description, no paraphrase>
+MEMORY: <comma-separated file list | none>
+MEMORY SKILL: <absolute orca-pod-memory/SKILL.md>
 CONTEXT: <short Coordinator findings and agreed additional requirements>
 TERMINALS: Planner handle=<...> (yours — pass it to Implementer); Implementer handle=<...>; Reviewer handle=<...|not configured>; Chief Reviewer handle=<...|not configured>
 REVIEW MODE: <full|reviewer|chief|self> (the skill's "Review modes" section)
@@ -55,6 +61,8 @@ When delegation is enabled, use the selected helpers and wait for native complet
 ```text
 ROLE: Implementer — not Coordinator: the terminals and config are ready; do not run orca terminal create, launch-provider.mjs or test-sandbox.mjs.
 PLAN: <absolute path> (version <planVersion>); SPEC: <absolute path>
+MEMORY: <comma-separated file list | none>
+MEMORY SKILL: <absolute orca-pod-memory/SKILL.md>
 TERMINALS: Implementer handle=<...> (yours — put it in REVIEW_REQUEST and CHIEF_FIX, the replies come to it); Reviewer handle=<...|not configured>; Chief Reviewer handle=<...|not configured>; Planner handle=<...>
 REVIEW MODE: <full|reviewer|chief|self>
 PROFILE: <name>; CONCURRENT SUBAGENTS: up to <N> per role (max_subagents; no launch budget)
@@ -85,6 +93,8 @@ the `chief` mode; in the `self` mode no REVIEW_REQUEST is sent.
 REVIEW_REQUEST [plan=<version>, stage=<all|S1…>, attempt=1]
 ROLE: <Reviewer|Chief Reviewer> — not Coordinator: the terminals and config are ready; do not run orca terminal create, launch-provider.mjs or test-sandbox.mjs.
 PLAN: <abs>; SPEC: <abs>; PROJECT: <abs>
+MEMORY: <comma-separated file list | none>
+MEMORY SKILL: <absolute orca-pod-memory/SKILL.md>
 TERMINALS: Implementer handle=<...>; Planner handle=<...>; Chief Reviewer handle=<...|not configured>
 REVIEW MODE: <full|reviewer|chief> — in reviewer/chief you issue the final verdict yourself
 PROFILE: <name>; CONCURRENT SUBAGENTS: up to <N> per role (max_subagents; no launch budget)
@@ -171,6 +181,8 @@ FINAL_READY [plan=<version>]: all stages APPROVED, no blocking findings.
 ROLE: Chief Reviewer — not Coordinator: the terminals and config are ready; do not run orca terminal create, launch-provider.mjs or test-sandbox.mjs.
 Last report (full registry): <path>. Review reports: <dir>.
 Spec: <path>; Plan: <path>. Implementer report and checks: <path/brief>.
+MEMORY: <comma-separated file list | none>
+MEMORY SKILL: <absolute orca-pod-memory/SKILL.md>
 Baseline: HEAD=<sha>; patch: <path of the last snapshot>.
 CUMULATIVE TASK FILES AND CONSUMERS: <paths, including renames and deletions>
 DIAGNOSTIC EVIDENCE: <Reviewer report with checked/unsupported, freshness and outcome; do not repeat the cumulative pass>.
