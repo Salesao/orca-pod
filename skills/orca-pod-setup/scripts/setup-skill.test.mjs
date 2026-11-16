@@ -14,12 +14,12 @@ const SKILL = readFileSync(new URL("../SKILL.md", import.meta.url), "utf8");
 // A live Codex run: link-agents.sh and link-pi-extension.sh failed with "Operation not permitted" before the retry, and
 // Pi listed no models inside the sandbox (it takes lock files in ~/.pi/agent).
 test("the form from Codex: the link scripts and the form run with elevated permissions from the first call", () => {
-  const scriptPath = SKILL.slice(SKILL.indexOf("### Claude Code and Codex"), SKILL.indexOf("## 4. Save the file and validate")).replace(/\s+/g, " ");
+  const scriptPath = SKILL.slice(SKILL.indexOf("### Claude Code and Codex"), SKILL.indexOf("## 5. Save the file and validate")).replace(/\s+/g, " ");
   assert.match(scriptPath, /Codex sandbox/);
   assert.match(scriptPath, /elevated permissions from the first call/);
   assert.match(scriptPath, /no write access \(sandbox\?\)/);
-  const links = SKILL.slice(SKILL.indexOf("## 2. Connect the helper agents"), SKILL.indexOf("## 3. Choose the path")).replace(/\s+/g, " ");
-  assert.match(links, /In Codex run this script, `link-pi-extension.sh` below and `setup-form.mjs` \(step 3\) with elevated permissions from the first call/);
+  const links = SKILL.slice(SKILL.indexOf("## 2. Connect the helper agents"), SKILL.indexOf("## 3. Ensure graphify")).replace(/\s+/g, " ");
+  assert.match(links, /In Codex run this script, `link-pi-extension.sh` below and `setup-form.mjs` \(step 4\) with elevated permissions from the first call/);
 });
 
 // ── guards over all the setup docs ──
@@ -38,13 +38,15 @@ test("the setup docs are English: no Cyrillic in any of them (the Russian transl
   }
 });
 
-test("SKILL.md keeps the five numbered steps in order", () => {
+test("SKILL.md keeps the seven numbered steps in order", () => {
   const titles = [
     "## 1. Find the project config",
     "## 2. Connect the helper agents",
-    "## 3. Choose the path for the current agent",
-    "## 4. Save the file and validate",
-    "## 5. Summary",
+    "## 3. Ensure graphify",
+    "## 4. Choose the path for the current agent",
+    "## 5. Save the file and validate",
+    "## 6. Initialize project memory and instructions",
+    "## 7. Summary",
   ];
   const positions = titles.map((title) => SKILL.indexOf(title));
   assert.ok(positions.every((p) => p >= 0), `a step title is missing: ${positions}`);
@@ -81,7 +83,7 @@ test("SKILL.md: what not to do", () => {
   const tail = flat(SKILL.slice(SKILL.indexOf("## What not to do")));
   assert.match(tail, /Do not run roles, providers, Orca Run or subagents/);
   assert.match(tail, /Do not edit the YAML by hand instead of using the form, except on an explicit, narrowly scoped request/);
-  assert.match(tail, /Do not write tests and do not run checks beyond `--profiles`\/`--validate`\/`--resolve`/);
+  assert.match(tail, /Do not write tests or run checks beyond `--profiles`\/`--validate`\/`--resolve`, except the mandatory graphify, memory init, memory lint, index-only sync and project-instructions commands/);
 });
 
 

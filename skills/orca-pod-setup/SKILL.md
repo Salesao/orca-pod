@@ -18,7 +18,7 @@ the Planner always uses `using-superpowers` and `plan-blitz`. These are not YAML
 ## 1. Find the project config
 
 There is one config per repository: `.orca-pod/orca-pod.yaml` of the main checkout
-(the folder is added to `.gitignore` in step 4 when the project has one); in a linked worktree its own file in
+(the folder is added to `.gitignore` in step 6 when the project has one); in a linked worktree its own file in
 `.orca-pod/` wins, if there is one. Git is optional: outside a Git repository the project folder is the current
 folder, or its nearest parent that already has `.orca-pod/` (but not the home folder). The form (the Pi tool and `setup-form.mjs`) finds
 the active path itself — `targetPath` in the result — and before reading it migrates
@@ -63,7 +63,7 @@ Run (idempotent, does not replace existing regular files or live links of others
 <skill-dir>/../orca-pod/scripts/link-agents.sh
 ```
 
-In Codex run this script, `link-pi-extension.sh` below and `setup-form.mjs` (step 3) with elevated permissions
+In Codex run this script, `link-pi-extension.sh` below and `setup-form.mjs` (step 4) with elevated permissions
 from the first call (Codex asks the user once per command): the link scripts write into `~/.claude` and `~/.pi`,
 outside the project, so in the sandbox they fail with `Operation not permitted`.
 
@@ -91,7 +91,19 @@ with elevated permissions when required, just like the link scripts. Install
 failure must be reported; a user-requested text question or unavailable terminal
 UI is a separate runtime fallback, not proof that the dependency was installed.
 
-## 3. Choose the path for the current agent
+## 3. Ensure graphify
+
+From the project root run exactly one graphify check per setup pass. If `graphify-out/graph.json` is a readable valid JSON file in a normal non-symlink directory, use `--check`; otherwise use the default command to build the initial structural map:
+
+```bash
+node <skill-dir>/scripts/ensure-graphify.mjs --check
+# Or, if the graph is absent or unusable:
+node <skill-dir>/scripts/ensure-graphify.mjs
+```
+
+Do not run both. Graphify must be on PATH; a missing CLI, timeout, invalid graph or command failure stops setup. The tool does not install anything or use a semantic model. Resolve the cause before continuing.
+
+## 4. Choose the path for the current agent
 
 ### Pi: the browser form in one tool call
 
@@ -194,7 +206,7 @@ and in one AskUserQuestion ask for the profile name, the agent per role, the sub
 the Claude models are the aliases `opus`/`sonnet`/`haiku`/`fable`, and the
 helpers of a claude-code role get only `inherit` or an alias.
 
-## 4. Save the file and validate
+## 5. Save the file and validate
 
 - Re-read the target file before writing and compare the SHA-256 with `sourceHash`: the file may have
   changed while the choice was being made. If it does not match, show the difference and ask what to do.
@@ -219,7 +231,30 @@ Coordinator-launched terminal roles request each provider's supported YOLO mode 
 `--coordinator`. Chats use Orca permissions and instruction-only helper policy; the CLI cannot configure these per launch. The Full access toggle applies to direct terminal role launches. Setup
 does not modify global permission rules for the Coordinator workflow.
 
-Then add the pipeline's service folder to the project's `.gitignore` (idempotent; skip this step when the
+The launcher reads the **saved** file. For a profile with `valid: false`, show its
+`error` and reopen the form with the previous choice
+(Pi — `current_yaml`, the script — `--current-yaml-file` with the YAML in a temporary file in the
+scratchpad). `--resolve` checks that the CLI is on PATH or in the usual install folders and, for Codex roles, that the
+model and thinking are in the Codex catalog; it does not check authorization or access to the model.
+
+## 6. Initialize project memory and instructions
+
+Only after `status: submitted`, a successful save and all profiles validate, check that sibling `orca-pod-memory/SKILL.md` exists using `findMemorySkill` from `scripts/pipeline-skill.mjs`:
+
+```bash
+node --input-type=module -e 'const d = process.argv[1]; const m = await import(`${d}/scripts/pipeline-skill.mjs`); const p = m.findMemorySkill(d); if (!p) { console.error(m.MEMORY_MISSING(m.expectedMemorySkill(d))); process.exitCode = 1; } else console.log(`OK ${p}`);' <skill-dir>
+```
+
+If missing, stop; do not claim setup is ready. From the project root run each command exactly once, in this order:
+
+```bash
+node <skill-dir>/../orca-pod/scripts/memory-init.mjs
+node <skill-dir>/../orca-pod/scripts/memory-lint.mjs
+node <skill-dir>/../orca-pod/scripts/memory-sync.mjs --index-only
+node <skill-dir>/scripts/ensure-project-instructions.mjs
+```
+
+Stop on any failure. The templates never overwrite existing pages; lint is structural only. The final command manages only its marked AGENTS.md block and rejects conflicting edits. Do not run these commands on a cancelled or invalid submission. Then add the pipeline's service folder to the project's `.gitignore` (idempotent; skip this step when the
 result has `git: false`):
 
 ```bash
@@ -231,13 +266,7 @@ The script changes only an existing `<project-root>/.gitignore` and adds `.orca-
 `OK` — the folder is already ignored; `SKIP` — there is no `.gitignore` (the script does not create it), say
 that `.orca-pod/` will be visible in `git status`.
 
-The launcher reads the **saved** file. For a profile with `valid: false`, show its
-`error` and reopen the form with the previous choice
-(Pi — `current_yaml`, the script — `--current-yaml-file` with the YAML in a temporary file in the
-scratchpad). `--resolve` checks that the CLI is on PATH or in the usual install folders and, for Codex roles, that the
-model and thinking are in the Codex catalog; it does not check authorization or access to the model.
-
-## 5. Summary
+## 7. Summary
 
 Custom helpers can be defined in the form with a unique name, one-line role
 description and multiline instructions. Preserve both `description` and
@@ -250,7 +279,7 @@ limit; max_subagents controls concurrent instances separately.
 
 For each profile (mark the default profile and the subagent limit) — a table
 "role → agent → model → thinking → use_subagents → helpers"; the path to the file, the
-result of link-agents and a reminder: the pipeline has not been run yet. If there are several
+result of link-agents, graphify, memory initialization, lint, index sync and project instructions, and a reminder: the pipeline has not been run yet. If there are several
 profiles, the Coordinator will ask at launch which one to use.
 Summarize the five-profile and three-preset-specialization caps and the independent
 concurrency setting. Show the retained and archived profiles and the backup path
@@ -268,7 +297,7 @@ Choosing helpers and models — [discovery-and-recommendations.md](references/di
 - Do not run roles, providers, Orca Run or subagents.
 - Do not edit the YAML by hand instead of using the form, except on an explicit, narrowly scoped request.
 - Save the direct-launch access setting submitted through the form.
-- Do not write tests and do not run checks beyond `--profiles`/`--validate`/`--resolve`.
+- Do not write tests or run checks beyond `--profiles`/`--validate`/`--resolve`, except the mandatory graphify, memory init, memory lint, index-only sync and project-instructions commands above.
 
 ## Role windows
 

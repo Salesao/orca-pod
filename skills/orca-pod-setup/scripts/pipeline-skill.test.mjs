@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { findPipelineSkill, PIPELINE_MISSING } from "./pipeline-skill.mjs";
+import { findPipelineSkill, PIPELINE_MISSING, expectedMemorySkill, findMemorySkill, MEMORY_MISSING } from "./pipeline-skill.mjs";
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SETUP_SKILL_DIR = path.dirname(SCRIPTS_DIR);
@@ -37,9 +37,21 @@ function fakePipelineSkill(dir) {
 test("PIPELINE_MISSING: the exact text with the expected path and the install command", () => {
   assert.equal(
     PIPELINE_MISSING("/x/skills/orca-pod"),
-    'orca-pod skill not found at /x/skills/orca-pod; orca-pod-setup needs it next to itself — install the skills: npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"',
+    'orca-pod skill not found at /x/skills/orca-pod; orca-pod-setup needs it next to itself — install the skills: npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"',
   );
 });
+
+test("memory skill discovery requires its sibling SKILL.md", () => withTmp((root) => {
+  const setup = path.join(root, "skills", "orca-pod-setup");
+  mkdirSync(setup, { recursive: true });
+  const expected = path.join(root, "skills", "orca-pod-memory");
+  assert.equal(expectedMemorySkill(setup), expected);
+  assert.equal(findMemorySkill(setup), null);
+  assert.match(MEMORY_MISSING(expected), /orca-pod-memory/);
+  mkdirSync(expected);
+  writeFileSync(path.join(expected, "SKILL.md"), "---\nname: orca-pod-memory\n---\n");
+  assert.equal(findMemorySkill(setup), expected);
+}));
 
 test("findPipelineSkill: no orca-pod next to the skill → null", () => withTmp((root) => {
   const setup = path.join(root, "skills", "orca-pod-setup");
@@ -93,7 +105,7 @@ test("setup-form.mjs from a lone copy of orca-pod-setup: exit 2, JSON status err
   const outcome = JSON.parse(lines[0]);
   assert.equal(outcome.status, "error");
   assert.equal(outcome.error, PIPELINE_MISSING(path.join(root, "skills", "orca-pod")));
-  assert.match(outcome.error, /npx skills add Salesao\/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz -a claude-code codex pi && node/);
+  assert.match(outcome.error, /npx skills add Salesao\/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory -a claude-code codex pi && node/);
   assert.match(outcome.error, /ensure-pi-task\.mjs"$/);
   assert.doesNotMatch(outcome.error, /--all/);
   assert.doesNotMatch(result.stderr, /ERR_MODULE_NOT_FOUND/);
