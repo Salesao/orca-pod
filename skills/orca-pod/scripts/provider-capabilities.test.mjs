@@ -1,17 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { QODER_THINKING_LEVELS } from './pipeline-config.mjs';
 import { getProviderCapabilities, parseModelCatalog } from './provider-capabilities.mjs';
 
 test('new providers expose only capabilities supported by the supplied CLI evidence', () => {
   assert.equal(getProviderCapabilities('qoder').delegation.kind, 'instruction-only');
-  const capability = getProviderCapabilities('qoder', { version: '1.1.81', help: '--disallowed-tools --append-system-prompt --dangerously-skip-permissions --list-models' });
+  const capability = getProviderCapabilities('qoder', { version: '1.1.89', help: '--disallowed-tools --append-system-prompt --dangerously-skip-permissions --reasoning-effort --list-models' });
   assert.equal(capability.delegation.kind, 'tool-filtered');
-  assert.equal(capability.reasoning.kind, 'provider-default');
+  assert.equal(capability.reasoning.kind, 'levels');
+  assert.deepEqual(capability.reasoning.levels, QODER_THINKING_LEVELS);
   assert.deepEqual(capability.access.flags, ['--dangerously-skip-permissions']);
+  assert.equal(getProviderCapabilities('qoder', { version: '1.1.89', help: '--list-models' }).reasoning.kind, 'unknown');
 });
 
-test('Qoder and OMP model listings retain proven levels and identify partial results', () => {
-  assert.deepEqual(parseModelCatalog('qoder', 'MODEL\nName (model-id)\ninvalid row\n').models.map(({ id, levels }) => [id, levels]), [['model-id', ['default']]]);
+test('Qoder uses the global effort set and OMP keeps proven levels', () => {
+  assert.deepEqual(parseModelCatalog('qoder', 'MODEL\nName (model-id)\ninvalid row\n').models.map(({ id, levels }) => [id, levels]), [['model-id', QODER_THINKING_LEVELS]]);
   assert.deepEqual(parseModelCatalog('qoder', 'MODEL\nQwen-3.8-Flash\n').models.map(({ id }) => id), ['Qwen-3.8-Flash']);
   const result = parseModelCatalog('omp', JSON.stringify({ models: [
     { selector: 'example/precise', thinking: ['low', 'high', 'imaginary'] },

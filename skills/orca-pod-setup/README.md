@@ -103,7 +103,10 @@ The model values are taken from the template; replace them with the ones availab
 | thinking | the levels that the model supports | `low`, `medium`, `high`, `xhigh`, `max` | the model's reasoning effort (for example `low`…`ultra`) |
 | Helpers | any agent name in pi-subagents; `worker`, `reviewer`, `scout`, `oracle`, `evidence-auditor` run as the skill's `orca-*` agents | only an alias or `inherit` | any model of the Codex catalog or `inherit`; the `orca_*` agents are registered by the launcher |
 
-The form discovers Pi, Claude Code, Codex, Qoder and OMP. An installed Qoder or OMP with an incomplete catalog can accept a manual model ID.
+Qoder models use the global `--reasoning-effort` levels `none`, `low`, `medium`, `high`, `xhigh`, `max`;
+per-model support is not exposed. Qoder terminal roles always request YOLO. The form discovers
+Pi, Claude Code, Codex, Qoder and OMP. An installed Qoder or OMP with an incomplete catalog can
+accept a manual model ID.
 
 ## Manual check
 

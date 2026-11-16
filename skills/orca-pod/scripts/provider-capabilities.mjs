@@ -1,4 +1,4 @@
-import { PROVIDER_LABELS } from './pipeline-config.mjs';
+import { PROVIDER_LABELS, QODER_THINKING_LEVELS } from './pipeline-config.mjs';
 
 export const PROVIDER_EXECUTABLES = { pi: 'pi', codex: 'codex', 'claude-code': 'claude', qoder: 'qodercli', omp: 'omp' };
 export const MODEL_CATALOG_ARGS = { qoder: ['--list-models'], omp: ['models', '--json'] };
@@ -23,9 +23,9 @@ export function getProviderCapabilities(provider, evidence = {}) {
   const kind = ['codex', 'claude-code'].includes(provider) ? 'native'
     : filter && supports(filter) ? 'tool-filtered' : 'instruction-only';
   const reasoning = established || (provider === 'omp' && supports('--thinking')) ? 'levels'
-    : provider === 'qoder' && supports('--list-models') ? 'provider-default' : 'unknown';
+    : provider === 'qoder' && supports('--reasoning-effort') ? 'levels' : 'unknown';
   return {
-    provider, version, source, reasoning: { kind: reasoning, levels: [] }, delegation: { kind }, access,
+    provider, version, source, reasoning: { kind: reasoning, levels: reasoning === 'levels' && provider === 'qoder' ? [...QODER_THINKING_LEVELS] : [] }, delegation: { kind }, access,
     rolePrompt: established || supports('--append-system-prompt'),
     nativeAgents: ['codex', 'claude-code'].includes(provider) || (provider === 'qoder' && supports('--agents')) || (provider === 'omp' && supports('--config')),
     questions: { kind: { codex: 'request_user_input', 'claude-code': 'AskUserQuestion', pi: 'pi_task', qoder: evidence.questions, omp: evidence.questions }[provider] ?? 'text' },
@@ -49,12 +49,14 @@ export function parseModelCatalog(provider, output) {
   } else throw new Error(`No model-list adapter for ${provider}`);
 
   const source = `${PROVIDER_LABELS[provider]}: ${PROVIDER_EXECUTABLES[provider]} ${MODEL_CATALOG_ARGS[provider].join(' ')}`;
+  const qoder = provider === 'qoder';
   const byId = new Map();
   for (const row of rows) {
     if (typeof row?.id !== 'string' || !isManualModelId(row.id)) continue;
     const levels = Array.isArray(row.thinking) ? OMP_LEVELS.filter((level) => row.thinking.includes(level)) : [];
     byId.set(row.id, { program: provider, id: row.id, label: row.label || row.id,
-      levels: ['default', ...levels], source, reasoningKind: levels.length ? 'levels' : 'provider-default' });
+      levels: qoder ? [...QODER_THINKING_LEVELS] : ['default', ...levels], source,
+      reasoningKind: qoder || levels.length ? 'levels' : 'provider-default' });
   }
   const models = [...byId.values()];
   return { models, source, status: !models.length ? 'unavailable' : rows.length > models.length ? 'partial' : 'available' };

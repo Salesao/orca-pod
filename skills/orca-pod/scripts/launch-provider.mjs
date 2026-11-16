@@ -158,10 +158,11 @@ try {
   const capabilities = getProviderCapabilities(settings.provider, { help, version,
     questions: settings.provider === 'omp' && /^\s+ask\s+-.+interactive/m.test(help) ? 'ask'
       : settings.provider === 'qoder' && version && /^1\.1\.(?:8[1-9]|9[0-9])$/.test(version) ? 'AskUserQuestion' : undefined });
-  settings.effectiveAccess = options.shouldValidate ? 'unchecked' : settings.fullAccess ? capabilities.access.kind : 'profile-default';
+  const wantsYolo = settings.fullAccess || settings.provider === 'qoder';
+  settings.effectiveAccess = options.shouldValidate ? 'unchecked' : wantsYolo ? capabilities.access.kind : 'profile-default';
   settings.delegationEnforcement = capabilities.delegation.kind;
   settings.capabilities = capabilities;
-  if (executable && settings.fullAccess && capabilities.access.kind !== 'yolo') {
+  if (executable && wantsYolo && capabilities.access.kind !== 'yolo') {
     settings.warnings.push(`${settings.provider}: requested YOLO; effective access is ${capabilities.access.kind}`);
   }
   if (executable && !capabilities.rolePrompt) settings.warnings.push(`${settings.provider}: no verified session prompt option; include the complete role policy in the first task`);

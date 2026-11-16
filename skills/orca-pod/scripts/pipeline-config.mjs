@@ -12,6 +12,9 @@ const PROVIDER_ALIASES = new Map([
   ["qodercli", "qoder"],
 ]);
 export const PROVIDER_LABELS = { pi: "Pi", "claude-code": "Claude Code", codex: "Codex", omp: "OMP", qoder: "Qoder" };
+// Qoder CLI accepts these values for --reasoning-effort. The model listing does not expose
+// per-model support, so the form offers the full global set (default/auto stay manual-only).
+export const QODER_THINKING_LEVELS = ["none", "low", "medium", "high", "xhigh", "max"];
 
 const ALLOWED_ROOT_KEYS = ["active_profile", "default_provider", "language", "profiles"];
 const ALLOWED_PROFILE_KEYS = ["roles", "default_provider", "default_surface", "max_subagents", "full_access"];
@@ -276,6 +279,7 @@ function maxSubagentsOf(profile, profileName) {
 }
 
 // full_access: true — Codex and Claude Code roles start without confirmations and sandbox (yolo, see provider-command.mjs).
+// Qoder terminal roles request YOLO unconditionally; full_access does not turn it off.
 function fullAccessOf(profile, profileName) {
   if (!has(profile, "full_access")) return false;
   if (typeof profile.full_access !== "boolean") fail(`profiles.${profileName}.full_access must be an unquoted boolean: true or false`);
@@ -356,9 +360,14 @@ export function resolveProfile(config, requestedProfileName = null) {
     resolvedRoles[name].subagentSettings = has(roleSettings, "subagents")
       ? parseSubagentSettings(roleSettings.subagents, name)
       : null;
-    if (resolvedRoles[name].provider === "qoder" && (resolvedRoles[name].thinking !== "default" ||
-        Object.values(resolvedRoles[name].subagentSettings ?? {}).some(({ thinking }) => !["default", "inherit"].includes(thinking)))) {
-      fail(`roles.${name}: Qoder model listings do not expose effort levels; use thinking: default`);
+    if (resolvedRoles[name].provider === "qoder") {
+      const allowed = ["default", "inherit", ...QODER_THINKING_LEVELS];
+      const unsupported = [...new Set([resolvedRoles[name].thinking,
+        ...Object.values(resolvedRoles[name].subagentSettings ?? {}).map(({ thinking }) => thinking)]
+        .filter((level) => !allowed.includes(level)))];
+      if (unsupported.length) {
+        fail(`roles.${name}: Qoder thinking must be one of ${["default", ...QODER_THINKING_LEVELS].join(", ")} (helpers also allow inherit); got ${unsupported.join(", ")}`);
+      }
     }
     if (resolvedRoles[name].provider === "omp" && !["default", "off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"].includes(resolvedRoles[name].thinking)) {
       fail(`roles.${name}: unsupported OMP thinking level ${resolvedRoles[name].thinking}`);

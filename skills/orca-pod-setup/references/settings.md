@@ -17,7 +17,7 @@ automatically. The file sets the programs and models the pipeline works with. Th
 | `default_provider` of a profile | The program for the roles of this profile that have no `provider` of their own |
 | `default_surface` of a profile | `terminal` (default) or `chat`; each role may override it with `surface` |
 | `max_subagents` of a profile | How many subagents one role runs at once: an integer from 1 to 100, 6 if the field is absent |
-| `full_access` of a profile | Direct launch setting (boolean); Coordinator requests supported YOLO for terminals through `--coordinator`. Pi and chats use host permissions; chat helper policy is instruction-only. |
+| `full_access` of a profile | Direct launch setting (boolean); Coordinator requests supported YOLO for terminals through `--coordinator`. Qoder terminal roles always request YOLO. Pi and chats use host permissions; chat helper policy is instruction-only. |
 | `roles` | The roles inside the selected set |
 | `planner` | Writes the specification and the plan with waves of independent TODOs |
 | `implementer` | Integrator: hands independent TODOs to parallel workers, integrates, sends the stage to review as one batch |
@@ -120,11 +120,12 @@ Resolve provider-native names at runtime. A missing/incompatible definition
 requires inline work. Pi foreground children inherit registered providers and
 exclude diagnostic extensions. Diagnostics stay with the main role.
 
-Qoder uses `qodercli --list-models` and `thinking: default`. OMP uses
-`omp models --json`, accepts the selected model's listed thinking levels, and
-also offers `default`. When the installed Qoder/OMP catalog is incomplete, the
-form accepts an exact manual ID with `default`. Availability is verified when
-the CLI launches.
+Qoder uses `qodercli --list-models` and offers `none`, `low`, `medium`, `high`,
+`xhigh` and `max`, passed as `--reasoning-effort`; per-model support is not
+exposed. OMP uses `omp models --json`, accepts the selected model's listed
+thinking levels, and also offers `default`. When the installed Qoder/OMP
+catalog is incomplete, the form accepts an exact manual ID with the provider's
+levels. Availability is verified when the CLI launches.
 
 ## A full example
 

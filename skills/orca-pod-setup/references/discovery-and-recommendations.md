@@ -212,8 +212,9 @@ In the YAML write only existing fields: `use_subagents`, `subagents`, `model`,
 ## Qoder and OMP
 
 Discover Qoder with `qodercli --list-models` and OMP with `omp models --json`.
-Record whether the list is complete and where each model came from. Use the
-provider-managed reasoning default when model-specific effort metadata is
-unavailable. Accept a manual model ID for an installed Qoder or OMP with a
-missing or partial catalog. Keep availability, model selection, permissions
-and helper policy separate.
+Record whether the list is complete and where each model came from. Qoder
+does not publish per-model effort metadata, so offer its global
+`--reasoning-effort` levels (`none`, `low`, `medium`, `high`, `xhigh`, `max`).
+Accept a manual model ID for an installed Qoder or OMP with a missing or
+partial catalog. Keep availability, model selection, permissions and helper
+policy separate.

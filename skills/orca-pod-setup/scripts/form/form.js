@@ -130,8 +130,12 @@ const progLabel = (prog) => (D.programLabels && D.programLabels[prog]) || prog;
 const effProg = (key) => state[key].provider || defProv;
 const allowsManual = (program) => D.programs.some((entry) => entry.id === program && entry.manual);
 const manualKey = (program, id) => allowsManual(program) && /^[A-Za-z0-9][A-Za-z0-9_./:@+-]{0,255}$/.test(id) ? program + ':' + id : '';
+const manualLevels = (program) => {
+  const entry = D.programs.find((item) => item.id === program);
+  return entry?.levels?.length ? entry.levels : ['default'];
+};
 const findModel = (key) => modelIndex.get(key) || (key && manualKey(progOf(key), key.slice(key.indexOf(':') + 1))
-  ? { levels: ['default'], source: 'manual' } : null);
+  ? { levels: manualLevels(progOf(key)), source: 'manual' } : null);
 const levelsOf = (key) => { const m = findModel(key); return m ? m.levels : []; };
 const shortModel = (key) => { const v = (key || '').slice((key || '').indexOf(':') + 1); const i = v.indexOf('/'); return i < 0 ? v : v.slice(i + 1); };
 const effModel = (st, s) => (!s.model || s.model === 'inherit') ? st.model : s.model;

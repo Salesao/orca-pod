@@ -35,8 +35,10 @@ export function providerCommand(settings, {
   const guard = roleGuard(role, policy, native.helperNames);
   const model = ['--model', settings.model];
   const effort = settings.thinking === 'default' ? [] : ['--thinking', settings.thinking];
+  const qoderEffort = settings.provider === 'qoder' && settings.thinking !== 'default' ? ['--reasoning-effort', settings.thinking] : [];
   const instructions = capabilities.rolePrompt ? ['--append-system-prompt', guard] : [];
-  const access = fullAccess ? capabilities.access.flags : [];
+  // Qoder terminal roles are always unattended: YOLO is their default even when full_access is false.
+  const access = fullAccess || settings.provider === 'qoder' ? capabilities.access.flags : [];
   const disabled = !policy.useSubagents;
   let flags;
   switch (settings.provider) {
@@ -62,7 +64,7 @@ export function providerCommand(settings, {
     case 'claude-code':
     case 'qoder': {
       const claude = settings.provider === 'claude-code';
-      flags = [...model, ...(claude ? ['--effort', settings.thinking] : []), ...instructions, ...access,
+      flags = [...model, ...qoderEffort, ...(claude ? ['--effort', settings.thinking] : []), ...instructions, ...access,
         ...(disabled && capabilities.delegation.kind !== 'instruction-only' ? ['--disallowed-tools', 'Agent'] : []),
         ...(!disabled && native.agents ? ['--agents', JSON.stringify(native.agents)] : []),
         ...(!disabled && native.excludedAgents?.length ? ['--disallowed-tools', native.excludedAgents.map((name) => `Agent(${name})`).join(',')] : [])];

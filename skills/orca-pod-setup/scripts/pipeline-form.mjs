@@ -95,8 +95,10 @@ export function validateServer(d, models, lang = 'en', providers = []) {
   const byKey = new Map(models.map((m) => [modelKeyOf(m), m]));
   const manual = new Set(providers.filter(({ id, available, catalogStatus, capabilities }) =>
     available && ['qoder', 'omp'].includes(id) && catalogStatus !== 'available' && capabilities?.reasoning.kind !== 'unknown').map(({ id }) => id));
+  const manualLevels = new Map(providers.map(({ id, capabilities }) => [id,
+    capabilities?.reasoning?.levels?.length ? capabilities.reasoning.levels : ['default']]));
   const lookup = (key, program) => typeof key === 'string' && keyProgram(key) === program
-    ? byKey.get(key) ?? (manual.has(program) && isManualModelId(keyValue(key)) ? { id: keyValue(key), levels: ['default'], source: 'manual' } : null)
+    ? byKey.get(key) ?? (manual.has(program) && isManualModelId(keyValue(key)) ? { id: keyValue(key), levels: manualLevels.get(program) ?? ['default'], source: 'manual' } : null)
     : byKey.get(key);
   const errs = [];
   // No field (an old client) means auto, as in the launcher; if the field is there it must be auto or a language tag.
@@ -248,7 +250,9 @@ export async function startPipelineForm({ models, sources = [], providers = [], 
   const availableProviders = new Map(providers.map((provider) => [provider.id, provider]));
   const programs = Object.keys(PROGRAMS).filter((program) => models.some((m) => m.program === program) || availableProviders.get(program)?.available)
     .map((program) => ({ id: program, label: PROGRAMS[program], manual: ['qoder', 'omp'].includes(program) && availableProviders.get(program)?.catalogStatus !== 'available' &&
-      availableProviders.get(program)?.capabilities.reasoning.kind !== 'unknown' && Boolean(availableProviders.get(program)?.available), count: models.filter((m) => m.program === program).length }));
+      availableProviders.get(program)?.capabilities.reasoning.kind !== 'unknown' && Boolean(availableProviders.get(program)?.available),
+      levels: availableProviders.get(program)?.capabilities?.reasoning?.levels ?? [],
+      count: models.filter((m) => m.program === program).length }));
   const data = {
     models, programs, programLabels: PROGRAMS, sources: [...sources, ...providers.flatMap(({ warning }) => warning ? [warning] : [])], targetPath, profileUpgrade, roleAgents: ROLE_AGENTS, presetHelperNames: PRESET_HELPER_NAMES, pre: prefill(currentYaml),
     limits: { maxProfiles: MAX_PROFILES, maxRoleSpecializations: MAX_ROLE_SPECIALIZATIONS, maxSubagentsDefault: MAX_SUBAGENTS_DEFAULT, maxSubagentsLimit: MAX_SUBAGENTS_LIMIT },

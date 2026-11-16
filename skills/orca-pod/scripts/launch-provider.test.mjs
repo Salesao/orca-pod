@@ -45,6 +45,19 @@ function runLauncher(templateYaml, { role = "implementer", shouldResolve = true,
         "",
       ].join("\n"), { mode: 0o755 });
     }
+    if (hasProviderExecutables) {
+      writeFileSync(path.join(executableDirectory, "qodercli"), [
+        "#!/bin/sh",
+        'case "$1" in',
+        '  --help) echo "--append-system-prompt --agents --disallowed-tools --dangerously-skip-permissions --reasoning-effort --list-models"; exit 0;;',
+        '  --version) echo "1.1.89"; exit 0;;',
+        '  --list-models) printf "MODEL\\nqwen-test\\n"; exit 0;;',
+        '  agents) exit 0;;',
+        'esac',
+        'printf "%s\\n" "$@"',
+        "",
+      ].join("\n"), { mode: 0o755 });
+    }
     const codexHome = path.join(fixtureRoot, "codex-home");
     mkdirSync(codexHome);
     if (codexCache !== null) writeFileSync(path.join(codexHome, "models_cache.json"), codexCache);
@@ -81,6 +94,18 @@ profiles:
 const LEGACY_YAML = COMPLETE_YAML
   .replace(/^        subagents:\n(?:[ ]{10,}.*\n)*/gm, "")
   .replace(/^.*use_subagents:.*\n/gm, "");
+const QODER_YAML = `active_profile: qoder-quality
+profiles:
+  qoder-quality:
+    default_provider: qoder
+    roles:
+      planner:
+        model: qwen-test
+        thinking: high
+      implementer:
+        model: qwen-test
+        thinking: xhigh
+`;
 function withSubagentSetting(rawSetting, role = "implementer") {
   return LEGACY_YAML.replace(`      ${role}:\n`, `      ${role}:\n        use_subagents: ${rawSetting}\n`);
 }
@@ -429,6 +454,31 @@ for (const invalidValue of ['"true"', "yes", "1", "on"]) {
     const result = runLauncher(withProfileSetting(`full_access: ${invalidValue}`), { shouldListRoles: true });
     assert.equal(result.status, 2);
     assert.match(result.stderr, /profiles\.sol-quality\.full_access must be an unquoted boolean: true or false/);
+  });
+}
+
+test("Qoder terminal roles always request YOLO and pass --reasoning-effort", () => {
+  const launched = runLauncher(QODER_YAML, { shouldResolve: false });
+  assert.equal(launched.status, 0, launched.stderr);
+  const args = launched.stdout.split("\n");
+  assert.ok(args.includes("--dangerously-skip-permissions"), launched.stdout);
+  assert.equal(args[args.indexOf("--reasoning-effort") + 1], "xhigh");
+  const resolved = JSON.parse(runLauncher(QODER_YAML, { shouldResolve: true }).stdout);
+  assert.equal(resolved.effectiveAccess, "yolo");
+  assert.equal(resolved.fullAccess, false);
+});
+
+test("Qoder YOLO ignores full_access: false", () => {
+  const launched = runLauncher(QODER_YAML.replace("  qoder-quality:\n", "  qoder-quality:\n    full_access: false\n"), { shouldResolve: false });
+  assert.equal(launched.status, 0, launched.stderr);
+  assert.ok(launched.stdout.split("\n").includes("--dangerously-skip-permissions"), launched.stdout);
+});
+
+for (const invalidThinking of ["auto", "ultra"]) {
+  test(`Qoder rejects thinking ${invalidThinking}`, () => {
+    const result = runLauncher(QODER_YAML.replace("thinking: xhigh", `thinking: ${invalidThinking}`), { shouldListRoles: true });
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /Qoder thinking must be one of default, none, low, medium, high, xhigh, max/);
   });
 }
 

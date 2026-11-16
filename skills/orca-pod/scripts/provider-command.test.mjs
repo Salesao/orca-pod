@@ -60,6 +60,16 @@ test("full access and disabled delegation stay independent for all five provider
   }
 });
 
+test("Qoder terminal roles always request YOLO and pass --reasoning-effort", () => {
+  const capabilities = getProviderCapabilities("qoder", { help: evidence.qoder });
+  const args = providerCommand(role("qoder", { thinking: "high" }), { ...options, capabilities, fullAccess: false });
+  assert.ok(args.includes("--dangerously-skip-permissions"));
+  assert.equal(args[args.indexOf("--reasoning-effort") + 1], "high");
+  const defaults = providerCommand(role("qoder", { thinking: "default" }), { ...options, capabilities, fullAccess: false });
+  assert.ok(defaults.includes("--dangerously-skip-permissions"));
+  assert.ok(!defaults.includes("--reasoning-effort"));
+});
+
 test("role guard is a single line and names both the role and the Coordinator boundary", () => {
   const guard = roleGuard("implementer", { useSubagents: false });
   assert.match(guard, /Implementer role.*not the Coordinator/);

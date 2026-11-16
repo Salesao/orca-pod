@@ -269,12 +269,14 @@ thinking from `low|medium|high|xhigh|max`, and the model of its helpers to be
 `inherit` or an alias `opus|sonnet|haiku|fable` (the Agent tool does not accept a full id).
 
 For terminal roles, Coordinator always requests session-local YOLO with `--coordinator` for every role. Chat roles use Orca permissions (`host-default`); the CLI cannot apply terminal access flags or helper registrations to a chat. Orca's Settings → Agents controls defaults for new chats and its chat UI exposes a permission selector, but the CLI offers no per-launch permission or helper override. Do not change the user's permission settings to imitate terminal access. Their helper policy is instruction-only, with inline fallback when native tools cannot honor it. Report this limitation in preflight rather than claiming YOLO or runtime enforcement.
-Codex uses `--dangerously-bypass-approvals-and-sandbox`, Claude Code and Qoder use
+Codex uses `--dangerously-bypass-approvals-and-sandbox`, Claude Code uses
 `--dangerously-skip-permissions`, and OMP uses `--approval-mode=yolo` when detected.
-Pi uses the host's existing permissions; report `host-default`. The launcher
-reports other unsupported equivalents and the actual effective access of each role.
-YOLO and helper policy are independent. `full_access` controls direct launches
-outside the Coordinator. Folder trust can still interrupt startup.
+Qoder terminal roles always request `--dangerously-skip-permissions`,
+independently of `full_access`. Pi uses the host's existing permissions; report
+`host-default`. The launcher reports other unsupported equivalents and the actual
+effective access of each role. YOLO and helper policy are independent.
+`full_access` controls direct launches of the other providers outside the
+Coordinator. Folder trust can still interrupt startup.
 
 For a codex role the launcher, at `--resolve` and at launch, checks the model and thinking
 of the role and of its helpers (after `inherit`) against the Codex catalog

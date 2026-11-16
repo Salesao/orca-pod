@@ -127,8 +127,9 @@ the tool's pending Promise: the answer appears in the result of the call.
 The form: **profiles** are tabs; "Add profile" creates a copy of the current one. A
 profile has a name, the "Default profile" mark (`active_profile`), a **default agent**
 (`default_provider`), **concurrent subagents** (`max_subagents`,
-1–100, 6 by default), **full access** (`full_access`, on for newly created profiles; direct launches only) and
-"Delete profile" (the last profile cannot be deleted). For each
+1–100, 6 by default), **full access** (`full_access`, on for newly created profiles; direct launches of providers
+other than Qoder) and "Delete profile" (the last profile cannot be deleted). Qoder terminal roles always request
+YOLO, regardless of `full_access`. For each
 role of the profile there is **its own agent** ("default" / Pi / Claude Code / Codex), the model,
 thinking, `use_subagents` and the helper subagents with `inherit`. The model catalogs
 ([catalogs.mjs](scripts/catalogs.mjs)):
@@ -138,6 +139,8 @@ thinking, `use_subagents` and the helper subagents with `inherit`. The model cat
 | Pi | in Pi, the registry of the current session; outside Pi, `pi --list-models` (the same synchronized catalog, including providers added by extensions such as claude-bridge) | `getSupportedThinkingLevels` over the objects of the RPC `get_available_models`; if the RPC is unavailable, the levels are approximate |
 | Claude Code | the aliases `opus`/`sonnet`/`haiku`/`fable` (the latest version of the family) and specific versions (`claude-opus-5-5`, `claude-opus-4-8`, …) from the Anthropic catalog synchronized in Pi — the same one claude-bridge uses (if `claude` is found; without Pi, only the aliases) | the model's effort from the same catalog (`low..max`) |
 | Codex | `codex debug models` — the models visible in the Codex picker (if `codex` is found); the fallback source is `~/.codex/models_cache.json` | the model's reasoning effort (`supported_reasoning_levels`, for example `low..ultra`) |
+| Qoder | `qodercli --list-models` (if `qodercli` is found); a manual ID is offered for an incomplete catalog | the global `--reasoning-effort` set: `none`, `low`, `medium`, `high`, `xhigh`, `max`; per-model support is not exposed, so the form shows all levels |
+| OMP | `omp models --json` (if `omp` is found); a manual ID is offered for an incomplete catalog | the model's listed thinking levels plus `default` |
 
 An agent's CLI is looked up in PATH and then in the usual install folders (`~/.local/bin`, `~/.claude/local`, the
 folder of the running `node`, nvm, Volta, Bun, pnpm, Homebrew…): the shell an agent runs commands in often lacks

@@ -103,7 +103,10 @@ profiles:
 | thinking | уровни, которые поддерживает модель | `low`, `medium`, `high`, `xhigh`, `max` | уровень thinking модели (в Codex это reasoning effort, например `low`…`ultra`) |
 | Субагенты | любое имя субагента из pi-subagents; `worker`, `reviewer`, `scout`, `oracle`, `evidence-auditor` запускаются как субагенты `orca-*` из скилла | только алиас или `inherit` | любая модель каталога Codex или `inherit`; субагентов `orca_*` регистрирует скрипт запуска |
 
-Форма предлагает Pi, Claude Code и Codex — те, у которых на машине доступен каталог моделей.
+Модели Qoder используют глобальные уровни `--reasoning-effort`: `none`, `low`, `medium`, `high`,
+`xhigh`, `max`; поддержка по конкретным моделям не публикуется. Терминалы Qoder всегда запрашивают
+YOLO. Форма предлагает Pi, Claude Code, Codex, Qoder и OMP; при неполном каталоге установленных
+Qoder или OMP можно ввести ID модели вручную.
 
 ## Ручная проверка
 

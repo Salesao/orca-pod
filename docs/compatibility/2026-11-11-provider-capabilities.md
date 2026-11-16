@@ -23,6 +23,11 @@ Catalog reads do not submit prompts.
 | Qoder | 1.1.81 initial terminal, 1.1.86 subsequent probe | `qodercli --list-models`; 1.1.81 returned names with IDs and 1.1.86 returned bare names; neither listing exposes per-model effort levels, so the launcher uses `default` | Interactive Reviewer reached YOLO after the operator confirmed folder trust. Native `scout` completed one bounded test. Selected definitions use `--agents`; the adapter denies discovered unselected Agent names. | Native `AskUserQuestion` returned Beta and Delta on repeat. |
 | OMP | 18.18.7 | `omp models --json` supplies exact selectors and optional thinking arrays. `default` omits the thinking flag. | `--approval-mode=yolo`, a session-local policy extension and native `task`. A selected `orca-scout` and a separately configured singleton `custom-smoke` each completed a bounded test from native project definitions. | Interactive `ask` returned Beta in its tool result. |
 
+Later launcher behavior (2026-11-16): Qoder roles offer the globally validated
+`--reasoning-effort` levels `none`, `low`, `medium`, `high`, `xhigh`, `max`
+(per-model support is not exposed by `--list-models`), and Qoder terminal roles
+always request YOLO independently of `full_access`.
+
 Pi's isolated test used an extension-registered provider named
 `arbitrary-smoke-provider` backed by a loopback fixture. The actual child
 request used the configured model and had only the selected `read` tool. The

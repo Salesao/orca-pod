@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { QODER_THINKING_LEVELS } from "../../orca-pod/scripts/pipeline-config.mjs";
 import { claudeCodeCatalog, codexCatalog, discoverCatalogs, failureReason, piCatalog } from "./catalogs.mjs";
 
 // The catalog texts the form shows: optgroup labels and "source" lines. They are English (the form translates only its own UI).
@@ -195,13 +196,13 @@ test("piCatalog: an older Pi without --no-mcp — the RPC is started again witho
 
 test("Qoder and OMP discovery distinguishes partial, absent and timed out catalogs", async () => {
   await withPath({
-    qodercli: 'case "$1" in --help) echo --list-models;; --version) echo 1.1.86;; --list-models) printf "MODEL\\nModel (exact-id)\\nunrecognized row\\n";; esac',
+    qodercli: 'case "$1" in --help) echo "--list-models --reasoning-effort";; --version) echo 1.1.89;; --list-models) printf "MODEL\\nModel (exact-id)\\nunrecognized row\\n";; esac',
     omp: 'case "$1" in --help) echo --thinking;; --version) echo 18.18.7;; models) exec sleep 10;; esac',
   }, async (cwd) => {
     const { providers, models } = await discoverCatalogs({ cwd, programs: ["qoder", "omp", "codex"], timeoutMs: 3000 });
     assert.deepEqual(providers.map(({ id, available, catalogStatus }) => [id, available, catalogStatus]), [
       ["qoder", true, "partial"], ["omp", true, "unavailable"], ["codex", false, "unavailable"],
     ]);
-    assert.deepEqual(models.map(({ program, id, levels }) => [program, id, levels]), [["qoder", "exact-id", ["default"]]]);
+    assert.deepEqual(models.map(({ program, id, levels }) => [program, id, levels]), [["qoder", "exact-id", QODER_THINKING_LEVELS]]);
   });
 });
