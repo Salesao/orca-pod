@@ -38,13 +38,14 @@
 и добавить **любое количество своих помощников**. Роль помощника и его инструкции задаются прямо в форме вместе
 с моделью и thinking и сохраняются в проекте. Параллельность задаётся отдельно: **6 по умолчанию, диапазон 1–100**.
 
-В репозитории четыре скилла для ИИ-агентов. Скилл — это папка с инструкциями, которую ваш агент загружает, когда вы
+В репозитории пять скиллов для ИИ-агентов. Скилл — это папка с инструкциями, которую ваш агент загружает, когда вы
 вводите её имя, например `/orca-pod`:
 
 | Скилл | Что он делает для вас |
 | --- | --- |
 | [`orca-pod`](skills/orca-pod/README.ru.md) | Запускает задачу. Сессия, из которой вы её запустили, выступает как Coordinator: открывает по одному терминалу Orca на роль и передаёт задачу Planner. |
 | [`orca-pod-setup`](skills/orca-pod-setup/README.ru.md) | Создаёт файл настроек проекта `.orca-pod/orca-pod.yaml` через форму в браузере. |
+| [`orca-pod-form`](skills/orca-pod-form/README.ru.md) | Повторно открывает форму в настроенном проекте без полного setup. [Инструкция скилла](skills/orca-pod-form/SKILL.md). |
 | [`plan-blitz`](skills/plan-blitz/README.ru.md) | Проводит вас по спецификации или плану перед утверждением; вопросы с вариантами ответа задаёт только там, где есть настоящий выбор. |
 | [`orca-pod-memory`](skills/orca-pod-memory/README.ru.md) | Хранит знания проекта и результаты задач с локальным поиском. [Инструкция](skills/orca-pod-memory/SKILL.md). |
 
@@ -55,7 +56,7 @@
 требования перечислены в разделе [Требования](#требования).
 
 ```bash
-npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
+npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory orca-pod-form -a claude-code codex pi qoder && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
 ```
 
 **2. Настройка.** Откройте проект в агенте и запустите скилл настройки. Он запишет `.orca-pod/orca-pod.yaml`
@@ -72,6 +73,14 @@ npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca
 | --- | --- | --- | --- |
 | **Настройка** | `/orca-pod-setup` | `$orca-pod-setup` | `/skill:orca-pod-setup` |
 | **Запуск** | `/orca-pod <task>` | `$orca-pod <task>` | `/skill:orca-pod <task>` |
+
+После полного setup повторно открыть только форму можно через `orca-pod-form`:
+
+| Claude Code | Codex | Pi | Qoder | OMP |
+| --- | --- | --- | --- | --- |
+| `/orca-pod-form` | `$orca-pod-form` | `/skill:orca-pod-form` | `/orca-pod-form` | `/skill:orca-pod-form` |
+
+Для OMP нужна дополнительная ссылка из раздела [Установка](#установка). Скилл формы не повторяет setup.
 
 Затем перейдите в сессию Planner в Orca. Planner напишет спецификацию и план и перед каждым утверждением задаст вам
 вопросы с вариантами ответа ([plan blitz](#plan-blitz)); после вашего утверждения Implementer выполнит план.
@@ -178,7 +187,7 @@ Planner проводит вас по спецификации и плану с �
 | Claude Code | `claude` в `PATH` или в одной из обычных папок установки (`~/.local/bin`, `~/.claude/local`, Homebrew, nvm и другие). Субагенты из `skills/orca-pod/agents/claude/` скилл `orca-pod-setup` подключает ссылками в `~/.claude/agents/`. |
 | Codex | `codex` в `PATH` или в одной из обычных папок установки. Помощники `orca_*` регистрируются для терминальных сессий; в чатах их политика задаётся инструкциями. Для прямых запусков в песочнице настройка предлагает правило `prefix_rule(pattern=["orca"], decision="allow")` в `~/.codex/rules/default.rules`. Координатор запрашивает Full Access для терминалов. Терминальный Planner использует проверенные средства Plan mode и сохранения документов; чат использует права Orca и файловые инструменты. |
 | Pi | Пакет вопросов `pi-task` — обязательная зависимость наряду с возможностями диагностики Lens и делегирования pi-subagents. Команда установки и setup устанавливают `npm:pi-task`, если его нет. Проверено с Pi 1.4.0 и pi-subagents 0.81.0. Помощники наследуют провайдеров без фоновой диагностики; при несовместимости роль работает сама. |
-| Qoder | `qodercli` в `PATH` или в обычной папке установки; в YAML — `provider: qoder`. Каталог читается через `qodercli --list-models`, thinking — `default`. Выбранные определения помощников регистрируются на время сессии. |
+| Qoder | `qodercli` в `PATH` или в обычной папке установки; в YAML — `provider: qoder`. Каталог читается через `qodercli --list-models`, thinking — один из `none`, `low`, `medium`, `high`, `xhigh`, `max`, передаётся как `--reasoning-effort`. Терминалы Qoder всегда запрашивают YOLO (`--dangerously-skip-permissions`); чаты используют разрешения Orca. Выбранные определения помощников регистрируются на время сессии. |
 | OMP | `omp` в `PATH` или в обычной папке установки; в YAML — `provider: omp`. Модели и уровни thinking берутся из `omp models --json`. Настройка подключает штатных агентов, политика сессии управляет нативным делегированием. |
 
 Установленные Qoder и OMP доступны и при неполном каталоге: где позволяют проверенные возможности CLI, форма
@@ -190,10 +199,10 @@ orca-pod не возобновляет прерванный запуск. Есл
 ## Установка
 
 ```bash
-npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
+npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory orca-pod-form -a claude-code codex pi qoder && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
 ```
 
-Команда ставит четыре скилла, только для Claude Code, Codex и Pi, глобально и без вопросов. Оба скилла пайплайна
+Команда ставит пять скиллов для Claude Code, Codex, Pi и Qoder глобально и без вопросов. Если setup уже выполнен, повторите эту команду установки для обновления скиллов — она не запускает настройку проекта повторно. Оба скилла пайплайна
 обязательны: `orca-pod-setup` ищет `orca-pod` рядом с собой и отказывается стартовать без него, а `orca-pod`
 вызывает `orca-pod-setup`, когда в проекте нет конфига. `plan-blitz` необязателен: без него Planner одной строкой
 предупреждает вас и просит утвердить спецификацию и план обычным текстом.
@@ -203,11 +212,11 @@ npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca
 сообщения об успехе. При ошибке исправьте указанную причину и повторите команду. После новой установки выполните
 `/reload` в открытой сессии Pi. Первый запуск `orca-pod-setup` также выполняет эту проверку для старых установок скиллов.
 
-Координатор может работать в любом из этих трёх хостов и запускать роли во всех пяти установленных провайдерах,
-включая Qoder и OMP. До запуска ролей войдите в каждый выбранный CLI; обнаружение каталога проверяет метаданные моделей.
+Координатор может работать в Claude Code, Codex или Pi и запускать роли во всех пяти установленных провайдерах,
+включая Qoder и OMP. Скилл `orca-pod-form` также работает в Qoder и OMP. До запуска ролей войдите в каждый выбранный CLI; обнаружение каталога проверяет метаданные моделей.
 
 Что она делает: глобальная установка (`-g`) кладёт папки скиллов в `~/.agents/skills/` (`orca-pod`,
-`orca-pod-setup`, `plan-blitz`), откуда их читают Codex и Pi, и создаёт ссылки для Claude Code, например
+`orca-pod-setup`, `plan-blitz`, `orca-pod-memory`, `orca-pod-form`), откуда их читают Codex и Pi, и создаёт ссылки для Claude Code, например
 `~/.claude/skills/orca-pod -> ../../.agents/skills/orca-pod`. Пакеты Pi устанавливаются собственным установщиком Pi.
 
 Альтернатива: установить скиллы для всех агентов, которых поддерживает CLI `skills`.
@@ -217,12 +226,25 @@ npx skills add Salesao/orca-pod -g --all && node "$HOME/.agents/skills/orca-pod-
 ```
 
 `--all` означает все скиллы для всех поддерживаемых агентов (сегодня это около 79 агентов), поэтому в папке скиллов
-каждого агента создаются ссылки `orca-pod`, `orca-pod-setup` и `plan-blitz` — больше 100 ссылок в папках
+каждого агента создаются ссылки `orca-pod`, `orca-pod-setup`, `plan-blitz`, `orca-pod-memory` и `orca-pod-form` — больше 100 ссылок в папках
 инструментов, которыми вы можете не пользоваться. Кроме того, у нескольких агентов нет поддержки глобальной
 установки: в выводе они помечены как ошибка, эти строки можно пропустить.
 
 `npx skills add Salesao/orca-pod --list` показывает, что лежит в репозитории, ничего не устанавливая. После
-установки начните новую сессию агента (в Pi — `/reload`), чтобы скиллы подхватились.
+установки начните новую сессию агента (в Pi — `/reload`), чтобы скиллы подхватились. В уже открытой сессии Qoder выполните `/skills reload`.
+
+OMP читает `~/.omp/agent/skills/`. После установки выше добавьте туда скилл формы, не заменяя существующий путь:
+
+```bash
+OMP_SKILLS="$HOME/.omp/agent/skills"
+OMP_FORM="$OMP_SKILLS/orca-pod-form"
+if [ -f "$HOME/.agents/skills/orca-pod-form/SKILL.md" ] && [ ! -e "$OMP_FORM" ] && [ ! -L "$OMP_FORM" ]; then
+  mkdir -p "$OMP_SKILLS"
+  ln -s "$HOME/.agents/skills/orca-pod-form" "$OMP_FORM"
+else
+  printf '%s\n' 'Source missing or OMP path already exists; no change.'
+fi
+```
 
 ## Окно вопросов Pi
 
@@ -423,10 +445,12 @@ writing-plans:
 > Coordinator запускает терминальные роли с поддерживаемым параметром YOLO. Чаты используют разрешения Orca: их можно проверить в чате или в «Настройки → Агенты», но CLI не задаёт их при запуске.
 > В этих сессиях команды и изменения могут выполняться без обычных подтверждений.
 
-Codex использует `--dangerously-bypass-approvals-and-sandbox`, Claude Code и Qoder
-используют `--dangerously-skip-permissions`, OMP — `--approval-mode=yolo`.
-Pi использует текущие права хоста. Поле профиля `full_access` относится к прямому
-запуску. Координатор показывает фактический режим каждой роли. Вопросы доверия
+Codex использует `--dangerously-bypass-approvals-and-sandbox`, Claude Code —
+`--dangerously-skip-permissions`, OMP — `--approval-mode=yolo`.
+Терминалы Qoder всегда используют `--dangerously-skip-permissions`;
+`full_access` это не отключает. Pi использует текущие права хоста. Поле
+профиля `full_access` относится к прямому запуску остальных провайдеров.
+Координатор показывает фактический режим каждой роли. Вопросы доверия
 к рабочей папке или хуку Codex могут появиться в терминале роли.
 [Устранение неполадок](#устранение-неполадок).
 
@@ -441,7 +465,7 @@ worktree может быть свой файл в его собственной 
 `orca-pipeline.yaml` в корне проекта — переносятся в `.orca-pod/` автоматически, и о каждом перенесённом пути вы
 получите сообщение.
 
-Редактируйте файл через `orca-pod-setup`; файл, написанный вручную, проверяется строго (неизвестный ключ останавливает
+Редактируйте файл через `orca-pod-setup`, а после полного setup используйте `orca-pod-form`, чтобы открыть только форму. Файл, написанный вручную, проверяется строго (неизвестный ключ останавливает
 запуск до открытия первого терминала). Минимальный пример:
 
 ```yaml
@@ -536,10 +560,10 @@ node ~/.agents/skills/orca-pod/scripts/launch-provider.mjs --profiles
 ## Удаление
 
 ```bash
-npx skills remove orca-pod orca-pod-setup plan-blitz orca-pod-memory -g -y
+npx skills remove orca-pod orca-pod-setup plan-blitz orca-pod-memory orca-pod-form -g -y
 ```
 
-Команда удаляет четыре скилла и их ссылки в папках всех агентов, в том числе после установки с `--all`. Если CLI не
+Команда удаляет пять скиллов и их ссылки в папках всех агентов, в том числе после установки с `--all`. Если CLI не
 запускается, удалите ссылки вручную: сначала выведите их список, потом удалите именно их.
 
 ```bash
@@ -548,7 +572,7 @@ find "$HOME" -maxdepth 5 -type l \( -name 'orca-pod*' -o -name plan-blitz \) \( 
 # 2. проверив список, удалить их
 find "$HOME" -maxdepth 5 -type l \( -name 'orca-pod*' -o -name plan-blitz \) \( -lname '*/.agents/skills/orca-pod*' -o -lname '*/.agents/skills/plan-blitz' \) -delete
 # 3. удалить папки скиллов
-rm -r ~/.agents/skills/orca-pod ~/.agents/skills/orca-pod-setup ~/.agents/skills/orca-pod-memory ~/.agents/skills/plan-blitz
+rm -r ~/.agents/skills/orca-pod ~/.agents/skills/orca-pod-setup ~/.agents/skills/orca-pod-memory ~/.agents/skills/orca-pod-form ~/.agents/skills/plan-blitz
 ```
 
 Настройка также создала ссылки на субагентов и на расширение Pi, а `npx skills remove` их не трогает. Удалите их
@@ -579,6 +603,8 @@ README скиллов переведены на русский; файлы SKILL
   роли, режимы ревью и полный рабочий процесс.
 - [skills/orca-pod-setup/README.ru.md](skills/orca-pod-setup/README.ru.md) и [SKILL.md](skills/orca-pod-setup/SKILL.md):
   форма настройки и то, что она записывает.
+- [skills/orca-pod-form/README.ru.md](skills/orca-pod-form/README.ru.md) и [SKILL.md](skills/orca-pod-form/SKILL.md):
+  повторное открытие только формы конфигурации в настроенном проекте.
 - [skills/plan-blitz/README.ru.md](skills/plan-blitz/README.ru.md) и [SKILL.md](skills/plan-blitz/SKILL.md): раунды
   вопросов перед утверждением.
 

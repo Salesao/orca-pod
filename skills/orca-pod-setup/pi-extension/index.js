@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // from the file's real path and the form scripts are loaded lazily, only when the tool is called.
 // The form scripts import the sibling skill orca-pod: without it, instead of ERR_MODULE_NOT_FOUND
 // the tool returns a clear error (pipeline-skill.mjs itself imports nothing from orca-pod).
-async function loadSetupScripts() {
+async function loadSetupScripts(formOnly = false) {
   const here = path.dirname(realpathSync(fileURLToPath(import.meta.url)));
   const scripts = path.resolve(here, '../scripts');
   const load = (name) => import(pathToFileURL(path.join(scripts, name)).href);
@@ -23,7 +23,8 @@ async function loadSetupScripts() {
     load('pipeline-form.mjs'), load('catalogs.mjs'), load('../../orca-pod/scripts/config-location.mjs'),
     load('../../orca-pod/scripts/profile-upgrade.mjs'),
   ]);
-  return { startPipelineForm: form.startPipelineForm, discoverCatalogs: catalogs.discoverCatalogs, location, upgradeProfiles: upgrade.upgradeProfiles };
+  const readFormOnlyConfig = formOnly ? (await load('form-only-config.mjs')).readFormOnlyConfig : undefined;
+  return { startPipelineForm: form.startPipelineForm, discoverCatalogs: catalogs.discoverCatalogs, location, upgradeProfiles: upgrade.upgradeProfiles, readFormOnlyConfig };
 }
 
 function formOutputSchema(Type) {
@@ -84,7 +85,7 @@ async function openBrowser(pi, url, cwd, signal) {
   if (result.code !== 0 || result.killed) throw new Error('Could not open the browser automatically; open the form URL manually');
 }
 
-function toolResult(data) {
+function toolResult(data, formOnly = false) {
   let text;
   if (data.status === 'submitted') {
     text = [
@@ -100,7 +101,9 @@ function toolResult(data) {
       ]),
       '',
       'The configuration is NOT saved yet; the pipeline roles were NOT started.',
-      'Continue the orca-pod-setup skill: re-read the target file and compare the SHA-256 (if it does not match, show the difference and ask the user what to do), show “was → now” per profile, write the whole YAML (comments in the old file are not carried over — say so if there were any) and run launch-provider.mjs --profiles — all profiles must be valid.',
+      formOnly
+        ? 'Continue the orca-pod-form skill: validate and save the submitted YAML using its safe form-only workflow; do not run the full setup.'
+        : 'Continue the orca-pod-setup skill: re-read the target file and compare the SHA-256 (if it does not match, show the difference and ask the user what to do), show “was → now” per profile, write the whole YAML (comments in the old file are not carried over — say so if there were any) and run launch-provider.mjs --profiles — all profiles must be valid.',
       '',
       '```yaml', data.yaml.trimEnd(), '```',
     ].join('\n');
@@ -134,13 +137,14 @@ export default function (pi) {
   pi.registerTool(defineTool({
     name: 'orca_pod_setup',
     label: 'Orca pipeline setup',
-    description: 'Open the existing Orca pipeline configuration form in a browser. “Generate YAML” returns the chosen settings and YAML directly to this tool call, like pi-interview. No shell server, polling, sleep or result files. Resolve the project folder (the Git root; outside Git the current folder) and prefill the active orca-pod.yaml (the linked worktree’s own file if there is one, otherwise the shared one). Does not write that file or launch pipeline roles. After submitted, follow the orca-pod-setup skill to save the config and validate it. Cancellation must not generate default settings.',
+    description: 'Open the existing Orca pipeline configuration form in a browser. “Generate YAML” returns the chosen settings and YAML directly to this tool call, like pi-interview. No shell server, polling, sleep or result files. Resolve the project folder (the Git root; outside Git the current folder) and prefill the active orca-pod.yaml (the linked worktree’s own file if there is one, otherwise the shared one). Does not write that file or launch pipeline roles. After submission, follow orca-pod-setup for full setup or orca-pod-form in form_only mode. Cancellation must not generate default settings.',
     promptSnippet: 'Configure orca-pod.yaml through the browser form; the answer returns directly to the agent.',
     exposure: 'model-only',
     executionMode: 'sequential',
     parameters: Type.Object({
       timeout: Type.Optional(Type.Number({ description: 'Seconds before cancellation by deadline', default: 900, minimum: 1, maximum: 86400 })),
       no_open: Type.Optional(Type.Boolean({ description: 'Show form URL without launching the browser', default: false })),
+      form_only: Type.Optional(Type.Boolean({ description: 'Edit an existing config without migrating or upgrading it', default: false })),
       current_yaml: Type.Optional(Type.String({ description: 'Previous generated YAML to prefill when reopening after a validation error; omit to use the project config' })),
     }, { additionalProperties: false }),
     outputSchema: formOutputSchema(Type),
@@ -158,22 +162,29 @@ export default function (pi) {
       let migration = null;
       let profileUpgrade;
       let git;
-      const cancelledResult = () => toolResult({ status: 'aborted', targetPath, git, sourceHash, migration, profileUpgrade, url: form?.url || '' });
+      const cancelledResult = () => toolResult({ status: 'aborted', targetPath, git, sourceHash, migration, profileUpgrade, url: form?.url || '' }, params.form_only);
       try {
         if (controller.signal.aborted) return cancelledResult();
-        const { startPipelineForm, discoverCatalogs, location: configModule, upgradeProfiles } = await loadSetupScripts();
+        const { startPipelineForm, discoverCatalogs, location: configModule, upgradeProfiles, readFormOnlyConfig } = await loadSetupScripts(params.form_only);
         // Git is optional: outside a repository the config goes into the current folder (or its nearest parent with .orca-pod/).
         const location = configModule.configLocation(configModule.projectLocation(ctx.cwd));
         git = location.git;
         if (controller.signal.aborted) return cancelledResult();
-        // The old .orca-pipeline/ and orca-pipeline.yaml move into .orca-pod/ before the config is read.
-        migration = configModule.migrationText(configModule.migrateLegacyConfig(location));
         const root = location.worktreeRoot;
-        targetPath = location.activePath; // migrateLegacyConfig has already recomputed it: a migrated worktree file wins over the shared one
-        let current = await readExistingConfig(targetPath);
-        if (current.hash !== null) {
-          profileUpgrade = upgradeProfiles(targetPath);
-          if (profileUpgrade.status === 'upgraded') current = await readExistingConfig(targetPath);
+        let current;
+        if (params.form_only) {
+          targetPath = location.activePath;
+          const existing = readFormOnlyConfig(location);
+          current = { text: existing.text, hash: existing.sourceHash };
+        } else {
+          // Full setup migrates old layouts and upgrades profiles before reading them.
+          migration = configModule.migrationText(configModule.migrateLegacyConfig(location));
+          targetPath = location.activePath; // a migrated worktree file wins over the shared one
+          current = await readExistingConfig(targetPath);
+          if (current.hash !== null) {
+            profileUpgrade = upgradeProfiles(targetPath);
+            if (profileUpgrade.status === 'upgraded') current = await readExistingConfig(targetPath);
+          }
         }
         sourceHash = current.hash;
         // Reload local configuration only. No AI sessions, paid probes or catalog network refresh.
@@ -207,7 +218,7 @@ export default function (pi) {
         // Browser POST resolves this Promise and Pi resumes the agent automatically.
         const outcome = await form.result;
         if (outcome.status === 'error') throw new Error(outcome.error);
-        return toolResult({ ...outcome, targetPath, git, sourceHash, migration, profileUpgrade });
+        return toolResult({ ...outcome, targetPath, git, sourceHash, migration, profileUpgrade }, params.form_only);
       } catch (error) {
         if (controller.signal.aborted) return cancelledResult();
         throw error;

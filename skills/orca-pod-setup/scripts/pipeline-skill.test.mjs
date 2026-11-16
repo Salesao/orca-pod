@@ -37,7 +37,7 @@ function fakePipelineSkill(dir) {
 test("PIPELINE_MISSING: the exact text with the expected path and the install command", () => {
   assert.equal(
     PIPELINE_MISSING("/x/skills/orca-pod"),
-    'orca-pod skill not found at /x/skills/orca-pod; orca-pod-setup needs it next to itself — install the skills: npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"',
+    'orca-pod skill not found at /x/skills/orca-pod; orca-pod-setup needs it next to itself — install the skills: npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory orca-pod-form -a claude-code codex pi qoder && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"',
   );
 });
 
@@ -105,10 +105,20 @@ test("setup-form.mjs from a lone copy of orca-pod-setup: exit 2, JSON status err
   const outcome = JSON.parse(lines[0]);
   assert.equal(outcome.status, "error");
   assert.equal(outcome.error, PIPELINE_MISSING(path.join(root, "skills", "orca-pod")));
-  assert.match(outcome.error, /npx skills add Salesao\/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory -a claude-code codex pi && node/);
+  assert.match(outcome.error, /npx skills add Salesao\/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory orca-pod-form -a claude-code codex pi qoder && node/);
   assert.match(outcome.error, /ensure-pi-task\.mjs"$/);
   assert.doesNotMatch(outcome.error, /--all/);
   assert.doesNotMatch(result.stderr, /ERR_MODULE_NOT_FOUND/);
+}));
+
+test("full setup CLI does not require the optional form-only helper", () => withTmp((root) => {
+  const setup = path.join(root, "skills", "orca-pod-setup");
+  copySetupSkill(setup);
+  rmSync(path.join(setup, "scripts", "form-only-config.mjs"));
+  symlinkSync(PIPELINE_SKILL_DIR, path.join(root, "skills", "orca-pod"));
+  const result = spawnSync(process.execPath, [path.join(setup, "scripts", "setup-form.mjs"), "--timeout", "0"], { cwd: root, encoding: "utf8" });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(JSON.parse(result.stdout.trim()).error, /--timeout must be a positive number/);
 }));
 
 test("setup-form.mjs through a claude → agents link with orca-pod next to the original: the check passes, the scripts are loaded", () => withTmp((root) => {

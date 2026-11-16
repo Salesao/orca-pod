@@ -26,7 +26,7 @@ export function findPipelineSkill(setupSkillDir) {
 }
 
 export function PIPELINE_MISSING(expected) {
-  return 'orca-pod skill not found at ' + expected + '; orca-pod-setup needs it next to itself — install the skills: npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"';
+  return 'orca-pod skill not found at ' + expected + '; orca-pod-setup needs it next to itself — install the skills: npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory orca-pod-form -a claude-code codex pi qoder && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"';
 }
 
 export function expectedMemorySkill(setupSkillDir) {
@@ -39,5 +39,5 @@ export function findMemorySkill(setupSkillDir) {
 }
 
 export function MEMORY_MISSING(expected) {
-  return 'orca-pod-memory skill not found at ' + expected + '; install the skills: npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"';
+  return 'orca-pod-memory skill not found at ' + expected + '; install the skills: npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory orca-pod-form -a claude-code codex pi qoder && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"';
 }

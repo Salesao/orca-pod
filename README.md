@@ -38,13 +38,14 @@ The setup form supports **up to five profiles**, **three preset helper specializ
 **any number of custom helpers**. Define a helper's role and instructions in the form, choose its model and
 thinking, and save it with the project. Concurrent helpers are controlled separately: **6 by default, 1–100**.
 
-The repository contains four agent skills. A skill is a folder of instructions that your coding agent loads when
+The repository contains five agent skills. A skill is a folder of instructions that your coding agent loads when
 you type its name, for example `/orca-pod`:
 
 | Skill | What it does for you |
 | --- | --- |
 | [`orca-pod`](skills/orca-pod/README.md) | Runs a task. The session where you start it acts as the Coordinator: it opens one Orca terminal per role and hands the task to the Planner. |
 | [`orca-pod-setup`](skills/orca-pod-setup/README.md) | Writes the project's config file, `.orca-pod/orca-pod.yaml`, through a browser form. |
+| [`orca-pod-form`](skills/orca-pod-form/README.md) | Reopens the form in an already configured project without repeating setup. See its [skill instructions](skills/orca-pod-form/SKILL.md). |
 | [`plan-blitz`](skills/plan-blitz/README.md) | Walks you through a spec or a plan before you approve it, with multiple-choice questions only where there is a real choice. |
 | [`orca-pod-memory`](skills/orca-pod-memory/README.md) | Keeps project knowledge and task results searchable in local files. See its [skill instructions](skills/orca-pod-memory/SKILL.md). |
 
@@ -55,7 +56,7 @@ Node.js 18 or newer and git for the installer (your project does not have to be 
 [Requirements](#requirements) lists the rest.
 
 ```bash
-npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
+npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory orca-pod-form -a claude-code codex pi qoder && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
 ```
 
 **2. Configure.** Open your project in the agent and run the setup skill. It writes `.orca-pod/orca-pod.yaml`
@@ -72,6 +73,14 @@ the Planner turns it into a proper spec and plan). A path takes priority over te
 | --- | --- | --- | --- |
 | **Configure** | `/orca-pod-setup` | `$orca-pod-setup` | `/skill:orca-pod-setup` |
 | **Run** | `/orca-pod <task>` | `$orca-pod <task>` | `/skill:orca-pod <task>` |
+
+After full setup, reopen only the form with `orca-pod-form`:
+
+| Claude Code | Codex | Pi | Qoder | OMP |
+| --- | --- | --- | --- | --- |
+| `/orca-pod-form` | `$orca-pod-form` | `/skill:orca-pod-form` | `/orca-pod-form` | `/skill:orca-pod-form` |
+
+OMP needs the additional link described in [Install](#install). The form-only skill does not rerun setup.
 
 Then switch to the Planner session in Orca. The Planner writes the spec and the plan and asks you multiple-choice
 questions before each approval (a [plan blitz](#plan-blitz)); after you approve, the Implementer carries the plan
@@ -175,7 +184,7 @@ Per agent:
 | Claude Code | `claude` on `PATH` or in a usual install folder (`~/.local/bin`, `~/.claude/local`, Homebrew, nvm and others). The helper agents from `skills/orca-pod/agents/claude/` are linked into `~/.claude/agents/` by `orca-pod-setup`. |
 | Codex | `codex` on `PATH` or in a usual install folder. The `orca_*` helpers are registered for terminal role sessions; chat helper policy is instruction-only. For direct launches inside a sandbox, setup offers the rule `prefix_rule(pattern=["orca"], decision="allow")` in `~/.codex/rules/default.rules`. Coordinator requests Full Access for terminals. Terminal Planner uses the verified Plan-mode and document-save controls described below; chat uses Orca permissions and file tools. |
 | Pi | Requires the `pi-task` question package alongside the Lens diagnostics and pi-subagents capabilities. The install command and setup bootstrap install `npm:pi-task` when absent. Verified with Pi 1.4.0 and pi-subagents 0.81.0. Foreground helpers inherit registered model providers without loading ambient extensions; incompatible routes run inline. |
-| Qoder | `qodercli` on `PATH` or in a usual install folder; use `provider: qoder` in YAML. Models come from `qodercli --list-models`; thinking uses `default`. Selected helper definitions are registered for the session. |
+| Qoder | `qodercli` on `PATH` or in a usual install folder; use `provider: qoder` in YAML. Models come from `qodercli --list-models`; thinking is one of `none`, `low`, `medium`, `high`, `xhigh`, `max` and is passed as `--reasoning-effort`. Terminal roles always request YOLO (`--dangerously-skip-permissions`); chats use Orca permissions. Selected helper definitions are registered for the session. |
 | OMP | `omp` on `PATH` or in a usual install folder; use `provider: omp`. Models and supported thinking levels come from `omp models --json`. Setup links bundled agents; session policy controls native delegation. |
 
 Setup also offers an installed Qoder or OMP when its catalog is incomplete, with an **Enter model ID** option
@@ -187,10 +196,10 @@ of the skill.
 ## Install
 
 ```bash
-npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory -a claude-code codex pi && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
+npx skills add Salesao/orca-pod -g -y -s orca-pod orca-pod-setup plan-blitz orca-pod-memory orca-pod-form -a claude-code codex pi qoder && node "$HOME/.agents/skills/orca-pod-setup/scripts/ensure-pi-task.mjs"
 ```
 
-This installs the four skills, only for Claude Code, Codex and Pi, globally and without prompts. Both skills of
+This installs the five skills for Claude Code, Codex, Pi and Qoder, globally and without prompts. If setup was already completed, rerun this install command to update the skills; it does not rerun the project's setup. Both skills of
 the pipeline are required: `orca-pod-setup` looks for `orca-pod` next to itself and refuses to start without it,
 and `orca-pod` calls `orca-pod-setup` when a project has no config. `plan-blitz` is optional: without it the
 Planner warns you in one line and asks you to approve the spec and the plan in plain text.
@@ -200,11 +209,11 @@ It skips machines without Pi, preserves an existing working version/source and v
 reporting success. If installation fails, fix the reported error and rerun the command. Run `/reload` in an
 existing Pi session after a new installation. First-time `orca-pod-setup` also runs this check for older skill installs.
 
-The Coordinator can run in any of these three hosts and launch roles in all five installed providers, including
-Qoder and OMP. Authenticate each selected CLI before launching roles; catalog discovery checks model metadata.
+The Coordinator can run in Claude Code, Codex or Pi and launch roles in all five installed providers, including
+Qoder and OMP. The `orca-pod-form` skill also runs in Qoder and OMP. Authenticate each selected CLI before launching roles; catalog discovery checks model metadata.
 
 What it does: a global install (`-g`) puts the skill folders in `~/.agents/skills/` (`orca-pod`, `orca-pod-setup`,
-`plan-blitz`), which Codex and Pi read directly, and links them for Claude Code, for example
+`plan-blitz`, `orca-pod-memory`, `orca-pod-form`), which Codex and Pi read directly, and links them for Claude Code, for example
 `~/.claude/skills/orca-pod -> ../../.agents/skills/orca-pod`. Pi packages are managed through Pi's own installer.
 
 Alternative: install into every agent the `skills` CLI supports.
@@ -214,11 +223,24 @@ npx skills add Salesao/orca-pod -g --all && node "$HOME/.agents/skills/orca-pod-
 ```
 
 `--all` means every skill for every supported agent (about 79 today), so it creates `orca-pod`,
-`orca-pod-setup` and `plan-blitz` links in each agent's skills folder, over 100 links in folders of tools you may not use. It also
+`orca-pod-setup`, `plan-blitz`, `orca-pod-memory` and `orca-pod-form` links in each agent's skills folder, over 100 links in folders of tools you may not use. It also
 reports a few agents without global-install support as failed; ignore those lines.
 
 `npx skills add Salesao/orca-pod --list` shows what is in the repository without installing anything. Start a new
-agent session after installing (in Pi, `/reload`) so the skills are picked up.
+agent session after installing (in Pi, `/reload`) so the skills are picked up. In an already open Qoder session, use `/skills reload`.
+
+OMP reads `~/.omp/agent/skills/`. After the install above, add the form skill there without replacing an existing path:
+
+```bash
+OMP_SKILLS="$HOME/.omp/agent/skills"
+OMP_FORM="$OMP_SKILLS/orca-pod-form"
+if [ -f "$HOME/.agents/skills/orca-pod-form/SKILL.md" ] && [ ! -e "$OMP_FORM" ] && [ ! -L "$OMP_FORM" ]; then
+  mkdir -p "$OMP_SKILLS"
+  ln -s "$HOME/.agents/skills/orca-pod-form" "$OMP_FORM"
+else
+  printf '%s\n' 'Source missing or OMP path already exists; no change.'
+fi
+```
 
 ## Pi question window
 
@@ -415,10 +437,12 @@ The protocol stays English whatever you choose: the `ROLE:` and `LANGUAGE:` prom
 > Coordinator launches terminal roles with the provider's supported YOLO option. Chats use Orca permissions, which can be checked in the chat or in Settings → Agents; the launcher cannot set them per launch. These
 > sessions can perform edits and commands without the usual approval prompts.
 
-Codex uses `--dangerously-bypass-approvals-and-sandbox`, Claude Code and Qoder
-use `--dangerously-skip-permissions`, and OMP uses `--approval-mode=yolo`.
-Pi uses the current host permissions. The profile's `full_access` setting
-controls direct launches. The Coordinator reports the effective access of each
+Codex uses `--dangerously-bypass-approvals-and-sandbox`, Claude Code uses
+`--dangerously-skip-permissions`, and OMP uses `--approval-mode=yolo`.
+Qoder terminal roles always use `--dangerously-skip-permissions`;
+`full_access` does not turn that off. Pi uses the current host permissions.
+The profile's `full_access` setting controls direct launches of the other
+providers. The Coordinator reports the effective access of each
 role. The first workspace trust prompt or Codex planning-hook trust prompt may
 still require an answer in the role's terminal. [Troubleshooting](#troubleshooting).
 
@@ -431,7 +455,7 @@ creates a `.gitignore`); without one, add `.orca-pod/` yourself before committin
 the `.orca-pipeline/` directory (with `orca-pipeline.yaml` and `reports/`) and `orca-pipeline.yaml` in the project
 root, are migrated into `.orca-pod/` automatically, and each moved path is reported to you.
 
-Edit it with `orca-pod-setup`; a hand-written file is validated strictly (an unknown key stops the run before any
+Edit it with `orca-pod-setup`, or use `orca-pod-form` after full setup to reopen only the form. A hand-written file is validated strictly (an unknown key stops the run before any
 terminal exists). A minimal example:
 
 ```yaml
@@ -523,10 +547,10 @@ node ~/.agents/skills/orca-pod/scripts/launch-provider.mjs --profiles
 ## Uninstall
 
 ```bash
-npx skills remove orca-pod orca-pod-setup plan-blitz orca-pod-memory -g -y
+npx skills remove orca-pod orca-pod-setup plan-blitz orca-pod-memory orca-pod-form -g -y
 ```
 
-This removes the four skills and their links in every agent's folder, including after a `--all` install. If you
+This removes the five skills and their links in every agent's folder, including after a `--all` install. If you
 cannot run the CLI, delete the links by hand: list them first, then delete exactly those.
 
 ```bash
@@ -535,7 +559,7 @@ find "$HOME" -maxdepth 5 -type l \( -name 'orca-pod*' -o -name plan-blitz \) \( 
 # 2. after checking the list, delete them
 find "$HOME" -maxdepth 5 -type l \( -name 'orca-pod*' -o -name plan-blitz \) \( -lname '*/.agents/skills/orca-pod*' -o -lname '*/.agents/skills/plan-blitz' \) -delete
 # 3. delete the skill folders
-rm -r ~/.agents/skills/orca-pod ~/.agents/skills/orca-pod-setup ~/.agents/skills/orca-pod-memory ~/.agents/skills/plan-blitz
+rm -r ~/.agents/skills/orca-pod ~/.agents/skills/orca-pod-setup ~/.agents/skills/orca-pod-memory ~/.agents/skills/orca-pod-form ~/.agents/skills/plan-blitz
 ```
 
 Setup also created links to the helper agents and to the Pi extension, and `npx skills remove` does not touch
@@ -564,6 +588,8 @@ The standalone pi-task package is managed separately through Pi's package comman
   roles, review modes and the full workflow.
 - [skills/orca-pod-setup/README.md](skills/orca-pod-setup/README.md) and [SKILL.md](skills/orca-pod-setup/SKILL.md):
   the setup form and what it writes.
+- [skills/orca-pod-form/README.md](skills/orca-pod-form/README.md) and [SKILL.md](skills/orca-pod-form/SKILL.md):
+  reopen only the configuration form in an initialized project.
 - [skills/plan-blitz/README.md](skills/plan-blitz/README.md) and [SKILL.md](skills/plan-blitz/SKILL.md): the rounds
   of questions before an approval.
 

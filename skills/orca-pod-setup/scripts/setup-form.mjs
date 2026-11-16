@@ -40,14 +40,15 @@ async function loadSiblingModules(pipelineSkill) {
 }
 
 function parseArgs(argv) {
-  const options = { timeout: 900, open: true, currentYamlFile: null, programs: ENABLED_PROGRAMS };
+  const options = { timeout: 900, open: true, formOnly: false, currentYamlFile: null, programs: ENABLED_PROGRAMS };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--timeout' && index + 1 < argv.length) options.timeout = Number(argv[++index]);
     else if (arg === '--no-open') options.open = false;
+    else if (arg === '--form-only') options.formOnly = true;
     else if (arg === '--programs' && index + 1 < argv.length) options.programs = argv[++index].split(',').map((p) => p.trim()).filter(Boolean);
     else if (arg === '--current-yaml-file' && index + 1 < argv.length) options.currentYamlFile = argv[++index];
-    else throw new Error('usage: setup-form.mjs [--timeout <seconds>] [--no-open] [--programs ' + ENABLED_PROGRAMS.join(',') + '] [--current-yaml-file <path>]');
+    else throw new Error('usage: setup-form.mjs [--timeout <seconds>] [--no-open] [--form-only] [--programs ' + ENABLED_PROGRAMS.join(',') + '] [--current-yaml-file <path>]');
   }
   if (!Number.isFinite(options.timeout) || options.timeout <= 0) throw new Error('--timeout must be a positive number of seconds');
   const unknown = options.programs.filter((p) => !KNOWN_PROGRAMS.includes(p));
@@ -97,17 +98,25 @@ try {
   const location = configLocation(projectLocation(process.cwd()));
   git = location.git;
   if (!location.git) console.error('PROJECT ' + location.worktreeRoot + ' (not a Git repository: the config goes into this folder)');
-  // The old .orca-pipeline/ and orca-pipeline.yaml move into .orca-pod/ before the config is read.
-  migration = migrationText(migrateLegacyConfig(location));
-  if (migration) for (const line of migration.split('\n')) console.error('MIGRATION ' + line);
   const root = location.worktreeRoot;
-  targetPath = location.activePath; // migrateLegacyConfig has already recomputed it: a migrated worktree file wins over the shared one
-  let current = await readExistingConfig(targetPath);
-  if (current.hash !== null) {
-    profileUpgrade = upgradeProfiles(targetPath);
-    if (profileUpgrade.status === 'upgraded') {
-      console.error('PROFILE UPGRADE ' + JSON.stringify(profileUpgrade));
-      current = await readExistingConfig(targetPath);
+  let current;
+  if (options.formOnly) {
+    targetPath = location.activePath;
+    const { readFormOnlyConfig } = await import('./form-only-config.mjs');
+    const existing = readFormOnlyConfig(location);
+    current = { text: existing.text, hash: existing.sourceHash };
+  } else {
+    // Full setup migrates old layouts and upgrades profiles before reading them.
+    migration = migrationText(migrateLegacyConfig(location));
+    if (migration) for (const line of migration.split('\n')) console.error('MIGRATION ' + line);
+    targetPath = location.activePath; // a migrated worktree file wins over the shared one
+    current = await readExistingConfig(targetPath);
+    if (current.hash !== null) {
+      profileUpgrade = upgradeProfiles(targetPath);
+      if (profileUpgrade.status === 'upgraded') {
+        console.error('PROFILE UPGRADE ' + JSON.stringify(profileUpgrade));
+        current = await readExistingConfig(targetPath);
+      }
     }
   }
   sourceHash = current.hash;

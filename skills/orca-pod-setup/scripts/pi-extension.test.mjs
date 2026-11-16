@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { applyFormOnly } from "./form-only-config.mjs";
+import { parsePipelineYaml } from "../../orca-pod/scripts/pipeline-config.mjs";
 
 // pi-extension/index.js is loaded by Pi with Pi's own packages. Here it runs against stubs of them,
 // with the real form scripts, to check the text the tool returns to the agent. SKILL.md tells the agent how to react to it.
@@ -16,11 +19,16 @@ const write = (file, text) => { mkdirSync(path.dirname(file), { recursive: true 
 process.env.ORCA_POD_BIN_DIRS = "";
 
 /** A skills/ layout in a temp dir: a copy of the extension (so the stubs below are found), real scripts and the real sibling skill. */
-function installExtension(root, scope) {
+function installExtension(root, scope, withoutFormOnly = false) {
   const skills = path.join(root, "skills");
   const setup = path.join(skills, "orca-pod-setup");
-  cpSync(path.join(SETUP_SKILL_DIR, "pi-extension"), path.join(setup, "pi-extension"), { recursive: true });
-  symlinkSync(path.join(SETUP_SKILL_DIR, "scripts"), path.join(setup, "scripts"));
+  cpSync(process.env.ORCA_TEST_PI_EXTENSION_DIR || path.join(SETUP_SKILL_DIR, "pi-extension"), path.join(setup, "pi-extension"), { recursive: true });
+  if (withoutFormOnly) {
+    cpSync(path.join(SETUP_SKILL_DIR, "scripts"), path.join(setup, "scripts"), { recursive: true, filter: (file) => !file.endsWith(".test.mjs") });
+    rmSync(path.join(setup, "scripts", "form-only-config.mjs"));
+  } else {
+    symlinkSync(path.join(SETUP_SKILL_DIR, "scripts"), path.join(setup, "scripts"));
+  }
   symlinkSync(PIPELINE_SKILL_DIR, path.join(skills, "orca-pod"));
   const stubs = path.join(setup, "node_modules", scope);
   const manifest = JSON.stringify({ type: "module", exports: "./index.js" });
@@ -37,11 +45,11 @@ function installExtension(root, scope) {
 
 /** Runs run({ tool, tools, ctx, project, root }) with the extension registered (tool = orca_pod_setup); PATH holds only git (no claude/codex catalogs). */
 // scope: the npm scope of Pi's packages — @earendil-works since Pi 0.74, @mariozechner before it.
-async function withExtension(run, { git = true, execCode = 0, registryError = null, scope = "@earendil-works" } = {}) {
+async function withExtension(run, { git = true, execCode = 0, registryError = null, scope = "@earendil-works", withoutFormOnly = false } = {}) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "orca-pi-ext-test-")));
   const previous = { PATH: process.env.PATH, ceiling: process.env.GIT_CEILING_DIRECTORIES };
   try {
-    const moduleUrl = installExtension(root, scope);
+    const moduleUrl = installExtension(root, scope, withoutFormOnly);
     const bin = path.join(root, "bin");
     mkdirSync(bin);
     symlinkSync(spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim(), path.join(bin, "git"));
@@ -104,7 +112,7 @@ test("the tool is registered as orca_pod_setup with an English prompt snippet an
   assert.equal(tool.description,
     "Open the existing Orca pipeline configuration form in a browser. “Generate YAML” returns the chosen settings and YAML directly to this tool call, like pi-interview. " +
     "No shell server, polling, sleep or result files. Resolve the project folder (the Git root; outside Git the current folder) and prefill the active orca-pod.yaml (the linked worktree’s own file if there is one, otherwise the shared one). " +
-    "Does not write that file or launch pipeline roles. After submitted, follow the orca-pod-setup skill to save the config and validate it. Cancellation must not generate default settings.");
+    "Does not write that file or launch pipeline roles. After submission, follow orca-pod-setup for full setup or orca-pod-form in form_only mode. Cancellation must not generate default settings.");
 }));
 
 test("Submit: the result text tells the agent to re-read the file, compare the SHA-256, save the YAML and run --profiles", () => withExtension(async ({ tool, ctx, project }) => {
@@ -209,6 +217,11 @@ test("outside a Git repository the form opens for the current folder; the submit
 
 // A user's Pi 0.73.1 failed to load the extension: "Cannot find module '@earendil-works/pi-ai'". Pi before 0.74 has only
 // the @mariozechner/* packages and its extension context has hasUI but no mode.
+test("full Pi setup does not require the optional form-only helper", () => withExtension(async ({ tool, ctx }) => {
+  const done = await tool.execute("call-full", { timeout: 1, no_open: true }, undefined, () => {}, ctx);
+  assert.equal(done.details.status, "timeout");
+}, { withoutFormOnly: true }));
+
 test("the setup form also opens with the older Pi package namespace", () => withExtension(async ({ tools, ctx }) => {
   assert.deepEqual(Object.keys(tools), ["orca_pod_setup"]);
   const { result, url } = await startTool(tools.orca_pod_setup, ctx);
@@ -228,4 +241,122 @@ test("cancelling the form after automatic profile upgrade preserves the backup a
   assert.deepEqual(details.profileUpgrade.archived, ["e"]);
   assert.equal(readFileSync(details.profileUpgrade.backupPath, "utf8"), source);
   assert.doesNotMatch(readFileSync(file, "utf8"), /^  e:/m);
+}));
+
+const FORM_ONLY_YAML = `active_profile: default
+profiles:
+  default:
+    default_provider: pi
+    roles:
+      planner:
+        model: zai/glm-5.3-flash
+        thinking: high
+        use_subagents: false
+      implementer:
+        model: zai/glm-5.3-flash
+        thinking: high
+        use_subagents: false
+`;
+
+test("form-only Pi cancellation leaves the existing config untouched and returns its original hash", () => withExtension(async ({ tool, ctx, project }) => {
+  const file = path.join(project, ".orca-pod", "orca-pod.yaml");
+  write(file, FORM_ONLY_YAML);
+  const before = readdirSync(path.dirname(file));
+  const form = await startTool(tool, ctx, { timeout: 30, no_open: true, form_only: true });
+  assert.equal((await post(form.url, "/cancel", {})).status, 200);
+  const { details } = await form.result;
+  assert.equal(details.status, "cancelled");
+  assert.equal(details.sourceHash, createHash("sha256").update(FORM_ONLY_YAML).digest("hex"));
+  assert.equal(readFileSync(file, "utf8"), FORM_ONLY_YAML);
+  assert.deepEqual(readdirSync(path.dirname(file)), before);
+}));
+
+test("form-only Pi submission returns quick-save guidance instead of the full setup workflow", () => withExtension(async ({ tool, ctx, project }) => {
+  const file = path.join(project, ".orca-pod", "orca-pod.yaml");
+  write(file, FORM_ONLY_YAML);
+  const form = await startTool(tool, ctx, { timeout: 30, no_open: true, form_only: true });
+  assert.equal((await post(form.url, "/generate", submission())).status, 200);
+  const done = await form.result;
+  assert.equal(done.details.status, "submitted");
+  assert.match(done.content[0].text, /orca-pod-form/);
+  assert.doesNotMatch(done.content[0].text, /Continue the orca-pod-setup skill/);
+  assert.equal(readFileSync(file, "utf8"), FORM_ONLY_YAML);
+}));
+
+test("form-only Pi submits and safely saves two profiles through the real form", () => withExtension(async ({ tool, ctx, project }) => {
+  const file = path.join(project, ".orca-pod", "orca-pod.yaml");
+  const second = FORM_ONLY_YAML.replace("  default:\n", "  secondary:\n").split("profiles:\n")[1];
+  const source = FORM_ONLY_YAML + second;
+  write(file, source);
+  const form = await startTool(tool, ctx, { timeout: 30, no_open: true, form_only: true });
+  const chosen = submission();
+  const secondary = structuredClone(chosen.profiles[0]);
+  secondary.name = "secondary";
+  chosen.profiles.push(secondary);
+  chosen.profiles[0].roles.planner.thinking = "medium";
+  assert.equal((await post(form.url, "/generate", chosen)).status, 200);
+  const done = await form.result;
+  assert.equal(done.details.status, "submitted");
+  assert.match(done.content[0].text, /orca-pod-form/);
+  assert.equal(readFileSync(file, "utf8"), source, "opening and submitting the form do not save by themselves");
+  const result = applyFormOnly({ cwd: project, targetPath: done.details.targetPath, sourceHash: done.details.sourceHash, yaml: done.details.yaml });
+  const saved = parsePipelineYaml(readFileSync(file, "utf8"));
+  assert.equal(result.status, "saved");
+  assert.equal(result.targetPath, file);
+  assert.equal(saved.active_profile, "default");
+  assert.equal(saved.profiles.default.roles.planner.thinking, "medium");
+  assert.equal(saved.profiles.secondary.roles.planner.thinking, "high");
+}));
+
+test("form-only Pi refuses to save when the config changed after the form opened", () => withExtension(async ({ tool, ctx, project }) => {
+  const file = path.join(project, ".orca-pod", "orca-pod.yaml");
+  write(file, FORM_ONLY_YAML);
+  const form = await startTool(tool, ctx, { timeout: 30, no_open: true, form_only: true });
+  const newer = FORM_ONLY_YAML + "# concurrent edit\n";
+  writeFileSync(file, newer);
+  assert.equal((await post(form.url, "/generate", submission())).status, 200);
+  const done = await form.result;
+  assert.throws(() => applyFormOnly({ cwd: project, targetPath: done.details.targetPath, sourceHash: done.details.sourceHash, yaml: done.details.yaml }), { code: "FORM_ONLY_CONFLICT" });
+  assert.equal(readFileSync(file, "utf8"), newer);
+  assert.deepEqual(readdirSync(path.dirname(file)), ["orca-pod.yaml"]);
+}));
+
+test("form-only Pi timeout leaves the configuration unchanged", () => withExtension(async ({ tool, ctx, project }) => {
+  const file = path.join(project, ".orca-pod", "orca-pod.yaml");
+  write(file, FORM_ONLY_YAML);
+  const done = await tool.execute("call-timeout", { timeout: 1, no_open: true, form_only: true }, undefined, () => {}, ctx);
+  assert.equal(done.details.status, "timeout");
+  assert.equal(readFileSync(file, "utf8"), FORM_ONLY_YAML);
+  assert.deepEqual(readdirSync(path.dirname(file)), ["orca-pod.yaml"]);
+}));
+
+test("form-only Pi refuses legacy-only configuration without migrating it", () => withExtension(async ({ tool, ctx, project }) => {
+  const legacy = path.join(project, "orca-pipeline.yaml");
+  write(legacy, FORM_ONLY_YAML);
+  await assert.rejects(tool.execute("call-fast", { timeout: 1, no_open: true, form_only: true }, undefined, () => {}, ctx), { code: "FORM_ONLY_SETUP_REQUIRED" });
+  assert.equal(readFileSync(legacy, "utf8"), FORM_ONLY_YAML);
+  assert.deepEqual(readdirSync(project), [".git", "orca-pipeline.yaml"]);
+}));
+
+test("form-only Pi can reopen with an unsaved YAML while preserving the on-disk hash", () => withExtension(async ({ tool, ctx, project }) => {
+  const file = path.join(project, ".orca-pod", "orca-pod.yaml");
+  write(file, FORM_ONLY_YAML);
+  const previous = FORM_ONLY_YAML.replace("active_profile: default", "active_profile: other").replace("  default:\n", "  other:\n");
+  const form = await startTool(tool, ctx, { timeout: 30, no_open: true, form_only: true, current_yaml: previous });
+  const url = new URL(form.url);
+  const data = await (await fetch(url.origin + "/data" + url.search)).json();
+  assert.equal(data.pre.activeProfile, "other");
+  await post(form.url, "/cancel", {});
+  const { details } = await form.result;
+  assert.equal(details.sourceHash, createHash("sha256").update(FORM_ONLY_YAML).digest("hex"));
+  assert.equal(readFileSync(file, "utf8"), FORM_ONLY_YAML);
+}));
+
+test("form-only Pi refuses six profiles without upgrading or writing a backup", () => withExtension(async ({ tool, ctx, project }) => {
+  const file = path.join(project, ".orca-pod", "orca-pod.yaml");
+  const source = "active_profile: f\nprofiles:\n" + ["a", "b", "c", "d", "e", "f"].map((name) => `  ${name}:\n    default_provider: pi\n`).join("");
+  write(file, source);
+  await assert.rejects(tool.execute("call-fast", { timeout: 1, no_open: true, form_only: true }, undefined, () => {}, ctx), { code: "FORM_ONLY_UPGRADE_REQUIRED" });
+  assert.equal(readFileSync(file, "utf8"), source);
+  assert.deepEqual(readdirSync(path.dirname(file)), ["orca-pod.yaml"]);
 }));

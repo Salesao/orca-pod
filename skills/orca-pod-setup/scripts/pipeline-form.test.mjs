@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { buildYaml, prefill, startPipelineForm, validateServer } from "./pipeline-form.mjs";
@@ -393,13 +394,13 @@ test("setup-form.mjs: migrates the old layouts before reading the config, the mi
   }
 });
 
-function runSetupForm(cwd, root, { open = false, env = {} } = {}) {
+function runSetupForm(cwd, root, { open = false, env = {}, extraArgs = [] } = {}) {
   // PATH holds only git and a claude stub (see the test above): the catalog is the aliases, no network, the form closes on the timeout.
   const bin = path.join(root, path.basename(cwd) + "-bin");
   mkdirSync(bin);
   writeFileSync(path.join(bin, "claude"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   symlinkSync(spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim(), path.join(bin, "git"));
-  const result = spawnSync(process.execPath, [SETUP_FORM_PATH, ...(open ? [] : ["--no-open"]), "--timeout", "1", "--programs", "claude-code"], {
+  const result = spawnSync(process.execPath, [SETUP_FORM_PATH, ...extraArgs, ...(open ? [] : ["--no-open"]), "--timeout", "1", "--programs", "claude-code"], {
     cwd, encoding: "utf8", env: { ...process.env, PATH: bin, ...env },
   });
   return { result, outcome: JSON.parse(result.stdout.trim().split("\n").pop()) };
@@ -497,10 +498,192 @@ test("setup-form.mjs: the browser cannot be opened → an English hint on stderr
   assert.match(result.stderr, /^The browser did not open automatically — open the link manually\.$/m);
 }));
 
-test("direct POST refuses six profiles and allows a manual Qoder ID only with proven default reasoning", async () => {
+const FORM_ONLY_YAML = `active_profile: default
+profiles:
+  default:
+    default_provider: claude-code
+    roles:
+      planner:
+        model: sonnet
+        thinking: high
+        use_subagents: false
+      implementer:
+        model: sonnet
+        thinking: high
+        use_subagents: false
+`;
+
+test("setup-form --form-only times out without changing the active configuration", () => withProject("orca-form-only-cli-", (project, root) => {
+  const dir = path.join(project, ".orca-pod");
+  const file = path.join(dir, "orca-pod.yaml");
+  mkdirSync(dir);
+  writeFileSync(file, FORM_ONLY_YAML);
+  const { result, outcome } = runSetupForm(project, root, { extraArgs: ["--form-only"] });
+  assert.equal(outcome.status, "timeout", result.stdout + result.stderr);
+  assert.equal(outcome.sourceHash, createHash("sha256").update(FORM_ONLY_YAML).digest("hex"));
+  assert.equal(readFileSync(file, "utf8"), FORM_ONLY_YAML);
+  assert.deepEqual(readdirSync(dir), ["orca-pod.yaml"]);
+}));
+
+test("setup-form --form-only refuses a legacy-only configuration without migrating it", () => withProject("orca-form-only-legacy-", (project, root) => {
+  const legacy = path.join(project, "orca-pipeline.yaml");
+  writeFileSync(legacy, FORM_ONLY_YAML);
+  const { outcome } = runSetupForm(project, root, { extraArgs: ["--form-only"] });
+  assert.equal(outcome.status, "error");
+  assert.match(outcome.error, /orca-pod-setup/);
+  assert.equal(readFileSync(legacy, "utf8"), FORM_ONLY_YAML);
+  assert.equal(existsSync(path.join(project, ".orca-pod")), false);
+}));
+
+test("setup-form --form-only refuses six profiles without upgrading the file", () => withProject("orca-form-only-profiles-", (project, root) => {
+  const dir = path.join(project, ".orca-pod");
+  const file = path.join(dir, "orca-pod.yaml");
+  const source = "active_profile: f\nprofiles:\n" + ["a", "b", "c", "d", "e", "f"].map((name) => `  ${name}:\n    default_provider: pi\n`).join("");
+  mkdirSync(dir);
+  writeFileSync(file, source);
+  const { outcome } = runSetupForm(project, root, { extraArgs: ["--form-only"] });
+  assert.equal(outcome.status, "error");
+  assert.match(outcome.error, /orca-pod-setup/);
+  assert.equal(readFileSync(file, "utf8"), source);
+  assert.deepEqual(readdirSync(dir), ["orca-pod.yaml"]);
+}));
+
+test("setup-form --form-only reopens previous YAML and cancellation leaves the original untouched", { timeout: 15000 }, async () => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "orca-form-only-cli-cancel-")));
+  let child;
+  try {
+    const project = path.join(root, "project");
+    const bin = path.join(root, "bin");
+    const dir = path.join(project, ".orca-pod");
+    const file = path.join(dir, "orca-pod.yaml");
+    const previousFile = path.join(root, "previous.yaml");
+    mkdirSync(dir, { recursive: true });
+    mkdirSync(bin);
+    writeFileSync(file, FORM_ONLY_YAML);
+    const previous = FORM_ONLY_YAML.replace("active_profile: default", "active_profile: other").replace("  default:\n", "  other:\n");
+    writeFileSync(previousFile, previous);
+    writeFileSync(path.join(bin, "claude"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    symlinkSync(spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim(), path.join(bin, "git"));
+    const script = process.env.ORCA_TEST_SETUP_FORM_PATH || SETUP_FORM_PATH;
+    child = spawn(process.execPath, [script, "--form-only", "--no-open", "--timeout", "10", "--programs", "claude-code", "--current-yaml-file", previousFile], {
+      cwd: project, env: { ...process.env, PATH: bin, GIT_CEILING_DIRECTORIES: root },
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    const finished = new Promise((resolve) => child.once("close", (code) => resolve({ code, stdout, stderr })));
+    const url = await new Promise((resolve, reject) => {
+      let found = false;
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+        const match = stderr.match(/FORM URL: (http:\/\/localhost:\d+\/\?t=\w+)/);
+        if (match && !found) { found = true; resolve(match[1]); }
+      });
+      child.once("error", reject);
+      child.once("close", () => { if (!found) reject(new Error(`form did not open: ${stdout} ${stderr}`)); });
+    });
+    const parsed = new URL(url);
+    const data = await (await fetch(parsed.origin + "/data" + parsed.search)).json();
+    assert.equal(data.pre.activeProfile, "other");
+    assert.equal((await fetch(parsed.origin + "/cancel" + parsed.search, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).status, 200);
+    const result = await finished;
+    assert.equal(result.code, 0, result.stderr);
+    const outcome = JSON.parse(result.stdout.trim().split("\n").pop());
+    assert.equal(outcome.status, "cancelled");
+    assert.equal(outcome.sourceHash, createHash("sha256").update(FORM_ONLY_YAML).digest("hex"));
+    assert.equal(readFileSync(file, "utf8"), FORM_ONLY_YAML);
+    assert.deepEqual(readdirSync(dir), ["orca-pod.yaml"]);
+  } finally {
+    if (child && child.exitCode === null) child.kill("SIGTERM");
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI form-only submits two profiles, saves them, and refuses a later conflict", { timeout: 20000 }, async () => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "orca-form-only-cli-e2e-")));
+  const children = new Set();
+  try {
+    const project = path.join(root, "project");
+    const bin = path.join(root, "bin");
+    const dir = path.join(project, ".orca-pod");
+    const file = path.join(dir, "orca-pod.yaml");
+    mkdirSync(dir, { recursive: true });
+    mkdirSync(bin);
+    const second = FORM_ONLY_YAML.replace("  default:\n", "  secondary:\n").split("profiles:\n")[1];
+    const source = FORM_ONLY_YAML + second;
+    writeFileSync(file, source);
+    writeFileSync(path.join(bin, "claude"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    symlinkSync(spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim(), path.join(bin, "git"));
+    const env = { ...process.env, PATH: bin, GIT_CEILING_DIRECTORIES: root };
+    const open = async () => {
+      const script = process.env.ORCA_TEST_SETUP_FORM_PATH || SETUP_FORM_PATH;
+      const child = spawn(process.execPath, [script, "--form-only", "--no-open", "--timeout", "10", "--programs", "claude-code"], { cwd: project, env });
+      children.add(child);
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => { stdout += chunk; });
+      const done = new Promise((resolve) => child.once("close", (code) => { children.delete(child); resolve({ code, stdout, stderr }); }));
+      const url = await new Promise((resolve, reject) => {
+        let found = false;
+        child.stderr.on("data", (chunk) => {
+          stderr += chunk;
+          const match = stderr.match(/FORM URL: (http:\/\/localhost:\d+\/\?t=\w+)/);
+          if (match && !found) { found = true; resolve(new URL(match[1])); }
+        });
+        child.once("error", reject);
+        child.once("close", () => { if (!found) reject(new Error(`form did not open: ${stdout} ${stderr}`)); });
+      });
+      return { url, done };
+    };
+    const chosen = {
+      activeProfile: "default", language: "auto", profiles: [
+        { name: "default", defaultProvider: "claude-code", maxSubagents: 6, roles: { planner: role("claude-code:sonnet", "medium"), implementer: role("claude-code:sonnet", "high") } },
+        { name: "secondary", defaultProvider: "claude-code", maxSubagents: 6, roles: { planner: role("claude-code:sonnet", "high"), implementer: role("claude-code:sonnet", "high") } },
+      ],
+    };
+    const submit = async (form) => {
+      const response = await fetch(form.url.origin + "/generate" + form.url.search, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(chosen),
+      });
+      assert.equal(response.status, 200, await response.text());
+      const result = await form.done;
+      assert.equal(result.code, 0, result.stderr);
+      return JSON.parse(result.stdout.trim().split("\n").pop());
+    };
+    const apply = (outcome) => spawnSync(process.execPath, [fileURLToPath(new URL('./apply-form-only.mjs', import.meta.url))], {
+      cwd: project, env, encoding: "utf8", input: JSON.stringify({ cwd: project, targetPath: outcome.targetPath, sourceHash: outcome.sourceHash, yaml: outcome.yaml }),
+    });
+
+    const first = await open();
+    const outcome = await submit(first);
+    assert.equal(outcome.status, "submitted");
+    assert.equal(readFileSync(file, "utf8"), source);
+    const saved = apply(outcome);
+    assert.equal(saved.status, 0, saved.stdout + saved.stderr);
+    const parsed = parsePipelineYaml(readFileSync(file, "utf8"));
+    assert.equal(parsed.active_profile, "default");
+    assert.equal(parsed.profiles.default.roles.planner.thinking, "medium");
+    assert.equal(parsed.profiles.secondary.roles.planner.thinking, "high");
+
+    const again = await open();
+    const newer = readFileSync(file, "utf8") + "# concurrent edit\n";
+    writeFileSync(file, newer);
+    const stale = await submit(again);
+    const rejected = apply(stale);
+    assert.equal(rejected.status, 1);
+    assert.equal(JSON.parse(rejected.stdout).code, "FORM_ONLY_CONFLICT");
+    assert.equal(readFileSync(file, "utf8"), newer);
+    assert.deepEqual(readdirSync(dir), ["orca-pod.yaml"]);
+  } finally {
+    for (const child of children) if (child.exitCode === null) child.kill("SIGTERM");
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("direct POST refuses six profiles and gives a manual Qoder ID the Qoder effort levels", async () => {
   const providers = [{
     id: "qoder", available: true, catalogStatus: "unavailable",
-    capabilities: { reasoning: { kind: "provider-default" } },
+    capabilities: { reasoning: { kind: "levels", levels: ["none", "low", "medium", "high", "xhigh", "max"] } },
   }];
   const form = await startPipelineForm({ models: MODELS, providers, timeout: 30 });
   try {
@@ -515,10 +698,12 @@ test("direct POST refuses six profiles and allows a manual Qoder ID only with pr
     const selection = settings();
     selection.profiles[0].roles.planner = role("qoder:manual-model", "ultra", { provider: "qoder" });
     assert.equal((await post(selection)).status, 400);
-    selection.profiles[0].roles.planner.thinking = "default";
+    selection.profiles[0].roles.planner.thinking = "auto";
+    assert.equal((await post(selection)).status, 400);
+    selection.profiles[0].roles.planner.thinking = "high";
     assert.equal((await post(selection)).status, 200);
     const { settings: accepted, yaml } = await form.result;
     assert.equal(accepted.profiles[0].roles.planner.modelSource, "manual");
-    assert.match(yaml, /provider: qoder\n\s+model: manual-model\n\s+thinking: default/);
+    assert.match(yaml, /provider: qoder\n\s+model: manual-model\n\s+thinking: high/);
   } finally { form.close(); }
 });
