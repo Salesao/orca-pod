@@ -380,11 +380,15 @@ fully disable the mechanism.
 `max_subagents` remains 6 by default, 1–100, and counts simultaneous instances.
 Provider mechanics, supported names and inline fallbacks are in [subagents.md](references/subagents.md).
 
-**Waiting for children.** Launch the children, then wait for completion using
-the provider’s foreground result, notification or `wait_agent` in Codex. Do not
-use `sleep`, timers or polling. A failed worker can be retried once; when the
-mechanism is incompatible or the retry fails, do the work inline. In the final
-report record total and peak concurrent helpers. Children never issue verdicts.
+**Waiting for children.** The parent may continue independent work while the
+children run, assigning explicit non-overlapping write paths in their shared folder;
+this separation is not technically enforced. Wait for all children and their writes
+before review or stage handoff, using the provider’s foreground result, notification
+or `wait_agent` in Codex. In Pi call the native `subagent` tool; verify one child on
+each new provider/model/thinking route before parallel fan-out. Do not use `sleep`,
+timers or polling. A failed worker can be retried once; when the mechanism is
+incompatible or the retry fails, do the work inline. In the final report record total
+and peak concurrent helpers. Children never issue verdicts.
 
 **Oracle (Planner).** Once per spec/plan version, only when a choice is needed
 between substantially different architectural options or there is a risk of violating

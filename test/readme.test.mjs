@@ -260,7 +260,8 @@ test("the README carries the requirement facts (Orca, Node, git, Claude Code, Co
     "Node.js >= 18": "Node.js 18",
     git: "git",
     "Pi subagent package": "npm:pi-subagents",
-    "Pi subagent package version": "0.81.0",
+    "Pi subagent package version 0.81.0": "0.81.0",
+    "Pi subagent package version 0.88.1": "0.88.1",
     "the conflicting Pi package": "pi-interactive-subagents",
     "the Codex rule": 'prefix_rule(pattern=["orca"], decision="allow")',
     "the Codex rules file": "~/.codex/rules/default.rules",
@@ -270,7 +271,8 @@ test("the README carries the requirement facts (Orca, Node, git, Claude Code, Co
   };
   const missing = Object.entries(facts).filter(([, needle]) => !text.includes(needle)).map(([name]) => name);
   assert.deepEqual(missing, []);
-  assert.match(text, /inherit registered model providers without loading ambient extensions/);
+  assert.match(text, /Foreground helpers use the parent model registry; background helpers run in an isolated process/);
+  assert.match(text, /incompatible provider routes run inline/);
   assert.match(text, /do(es)? not resume/i, "it should say an interrupted run is not resumed");
   assert.match(text, /new (run|invocation)/i, "it should say a new run is a new invocation");
   assert.match(text, /full_access/, "the Codex rule is not needed with full_access");

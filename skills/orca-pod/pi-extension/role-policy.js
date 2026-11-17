@@ -1,79 +1,47 @@
 import { randomUUID } from 'node:crypto';
+import { createNativeSubagentPolicy } from './native-subagent-policy.mjs';
 
 const REGISTER = 'pi-subagents:runtime-agent-register:v1';
-const REQUEST = 'prompt-template:subagent:request';
-const RESPONSE = 'prompt-template:subagent:response';
-const CANCEL = 'prompt-template:subagent:cancel';
-const TOOL = 'orca_pod_helpers';
+const RPC_REQUEST = 'subagents:rpc:v1:request';
+const RPC_REPLY = 'subagents:rpc:v1:reply:';
 const delegationTool = (name) => /^(?:subagents?($|_)|delegate($|_)|spawn_agent$|task($|_)|bg_wait$|contact_supervisor$)/.test(name);
 
-function runLeaf(pi, request, signal) {
-  if (signal?.aborted) return Promise.resolve({ status: 'cancelled' });
-  return new Promise((resolve) => {
-    function finish(result) {
-      clearTimeout(timer);
-      unsubscribe();
-      signal?.removeEventListener('abort', onAbort);
-      resolve(result);
-    }
-    const identity = { requestId: request.requestId, ownerRunId: request.ownerRunId, nodeId: request.nodeId };
-    const cancel = (status) => {
-      finish({ status });
-      pi.events.emit(CANCEL, identity);
-    };
-    const onAbort = () => cancel('cancelled');
-    const timer = setTimeout(() => cancel('timed_out'), request.timeoutMs + 1000);
-    const unsubscribe = pi.events.on(RESPONSE, (result) => {
-      if (result?.requestId === identity.requestId && result.ownerRunId === identity.ownerRunId && result.nodeId === identity.nodeId) finish(result);
-    });
-    signal?.addEventListener('abort', onAbort, { once: true });
-    try { pi.events.emit(REQUEST, request); } catch (error) { finish({ status: 'failed', error: error.message }); }
-  });
-}
-
-/** Check one leaf on each newly selected provider/model route before fan-out. */
-export async function dispatchSelectedTasks(tasks, available, maxSubagents, compatibility, run) {
-  if (!Array.isArray(tasks) || !tasks.length || tasks.length > maxSubagents ||
-      tasks.some((task) => !available.has(task?.agent) || typeof task.task !== 'string' || !task.task.trim())) {
-    throw new Error('Use only selected helper names, within the profile concurrency limit. Handle other work inline.');
-  }
-  const results = new Array(tasks.length);
-  const groups = new Map();
-  for (const [index, { agent }] of tasks.entries()) {
-    const { model, thinking } = available.get(agent);
-    const route = JSON.stringify([model, thinking]);
-    if (!groups.has(route)) groups.set(route, []);
-    groups.get(route).push(index);
-  }
-  await Promise.all([...groups].map(async ([route, indexes]) => {
-    if (!compatibility.has(route)) {
-      const index = indexes.shift();
-      results[index] = await run(tasks[index], index);
-      compatibility.set(route, results[index].status === 'completed');
-    }
-    if (!compatibility.get(route)) {
-      for (const index of indexes) results[index] = { status: 'inline', error: 'The selected Pi route failed compatibility preflight. Complete this task inline.' };
-      return;
-    }
-    await Promise.all(indexes.map(async (index) => { results[index] = await run(tasks[index], index); }));
-  }));
-  return results;
-}
-
 export default function (pi) {
-  const { helpers = [], maxSubagents = 6 } = JSON.parse(process.env.ORCA_POD_PI_POLICY ?? '{}');
+  let config;
+  try { config = JSON.parse(process.env.ORCA_POD_PI_POLICY ?? '{}'); }
+  catch { config = {}; }
+  if (!config || typeof config !== 'object' || Array.isArray(config)) config = {};
+  const helpers = Array.isArray(config.helpers) && config.helpers.every((helper) => helper &&
+    typeof helper === 'object' && typeof helper.name === 'string' && typeof helper.model === 'string') ? config.helpers : [];
+  const maxSubagents = config.maxSubagents === undefined ? 6 : config.maxSubagents;
   const available = new Map();
-  const compatibility = new Map();
   let registrations = [];
+  let subscriptions = [];
+  let policy;
   const dispose = () => {
+    policy?.dispose();
+    policy = undefined;
+    for (const unsubscribe of subscriptions) unsubscribe();
+    subscriptions = [];
     for (const registration of registrations) registration.dispose();
     registrations = [];
     available.clear();
-    compatibility.clear();
   };
+  const rpc = (method, params = {}) => new Promise((resolve) => {
+    const requestId = randomUUID();
+    let unsubscribe = () => {};
+    const timer = setTimeout(() => { unsubscribe(); resolve(undefined); }, 2000);
+    unsubscribe = pi.events.on(`${RPC_REPLY}${requestId}`, (response) => {
+      clearTimeout(timer);
+      unsubscribe();
+      resolve(response?.success === true ? response.data : undefined);
+    });
+    try { pi.events.emit(RPC_REQUEST, { version: 1, requestId, method, params }); }
+    catch { clearTimeout(timer); unsubscribe(); resolve(undefined); }
+  });
   const filterTools = () => {
     const tools = pi.getActiveTools();
-    const filtered = tools.filter((name) => !delegationTool(name) && (available.size || name !== TOOL));
+    const filtered = tools.filter((name) => !delegationTool(name) || (name === 'subagent' && available.size > 0));
     if (tools.length !== filtered.length) pi.setActiveTools(filtered);
   };
   pi.on('session_start', (_event, ctx) => {
@@ -85,48 +53,69 @@ export default function (pi) {
         if (matches.length !== 1) break;
         const exactModel = `${matches[0].provider}/${matches[0].id}`;
         const request = { version: 1, name, definition: { ...definition, model: exactModel,
-          defaultAsync: false, extensions: [], subagentOnlyExtensions: [], allowNestedSubagents: false,
+          defaultAsync: false, defaultTimeoutMs: 300000, extensions: [], subagentOnlyExtensions: [], allowNestedSubagents: false,
           maxSubagentDepth: 1, systemPromptMode: 'replace', inheritSkills: false } };
-        pi.events.emit(REGISTER, request);
-        if (!request.result?.ok) break;
+        try { pi.events.emit(REGISTER, request); }
+        catch { break; }
+        if (!request.result?.ok || typeof request.result.registration?.dispose !== 'function') break;
         registrations.push(request.result.registration);
         available.set(name, { model: exactModel, thinking: definition.thinking });
       }
-      if (available.size !== helpers.length) {
+      if (available.size === helpers.length && !pi.getActiveTools().includes('subagent') &&
+          pi.getAllTools?.().some(({ name }) => name === 'subagent')) {
+        pi.setActiveTools([...pi.getActiveTools(), 'subagent']);
+      }
+      if (available.size !== helpers.length || !pi.getActiveTools().includes('subagent')) {
         dispose();
         if (ctx.hasUI) ctx.ui.notify('Pi could not prepare the selected helpers with isolated extensions. The role will work inline.', 'warning');
-      } else if (!pi.getActiveTools().includes(TOOL)) {
-        pi.setActiveTools([...pi.getActiveTools(), TOOL]);
+      } else {
+        const sessionId = ctx.sessionManager?.getSessionId?.();
+        const sessionFile = ctx.sessionManager?.getSessionFile?.();
+        const inspectStatus = async () => {
+          const ping = await rpc('ping');
+          const capabilities = ping?.capabilities;
+          if (!sessionId || ping?.session?.sessionId !== sessionId || capabilities?.status !== true ||
+              capabilities?.fleetStatus?.version !== 1 || capabilities?.asyncStatusSnapshot?.version !== 1 ||
+              capabilities?.processTerminalProof?.version !== 1 ||
+              (ping?.events?.asyncStarted !== undefined && ping.events.asyncStarted !== 'subagent:async-started') ||
+              ping?.events?.asyncComplete !== 'subagent:async-complete' ||
+              ping?.events?.processTerminal !== 'subagent:process-terminal') return undefined;
+          const status = await rpc('status');
+          if (typeof status?.text !== 'string' || !status.text.startsWith('In-memory subagent status:') ||
+              !Array.isArray(status?.asyncSnapshot?.runs) || status.asyncSnapshot.runs.length > 64) return undefined;
+          const terminal = status.asyncSnapshot.runs.filter((run) => ['complete', 'failed', 'partial', 'stopped', 'rejected'].includes(run?.state));
+          const proofs = new Map();
+          await Promise.all(terminal.map(async (run) => {
+            const detail = await rpc('status', { id: run.id });
+            proofs.set(run.id, detail?.details?.workflowTerminalProof ?? detail?.details?.lifecycleStatus?.processTerminal);
+          }));
+          return { ...status, proofs };
+        };
+        policy = createNativeSubagentPolicy({ helpers: [...available].map(([name, settings]) => ({ name, ...settings })), maxSubagents, inspectStatus });
+        const inSession = (event) => !event?.sessionId || event.sessionId === sessionId || event.sessionId === sessionFile;
+        subscriptions.push(pi.events.on('subagent:async-started', (event) => { if (inSession(event)) policy?.recordStart(event); }));
+        subscriptions.push(pi.events.on('subagent:async-complete', (event) => { if (inSession(event)) policy?.recordCompletion(event); }));
+        subscriptions.push(pi.events.on('subagent:process-terminal', (event) => policy?.recordProcessTerminal(event)));
       }
     }
     filterTools();
   });
   pi.on('session_shutdown', dispose);
   pi.on('before_agent_start', filterTools);
-  pi.on('tool_call', (event) => {
-    if (delegationTool(event.toolName)) return { block: true, reason: 'Use the selected Pi helper interface if available. Otherwise work inline.' };
+  pi.on('tool_call', (event, ctx) => {
+    if (!delegationTool(event.toolName)) return;
+    if (event.toolName === 'subagent' && available.size && policy) {
+      return policy.admit({ callId: event.toolCallId, input: event.input });
+    }
+    if (event.toolName === 'subagent_launch' && available.size && policy) {
+      return policy.authorizeNested({ parentToolCallId: event.parentToolCallId, toolCallId: event.toolCallId,
+        input: event.input, cwd: ctx.cwd });
+    }
+    return { block: true, reason: 'Only selected Pi subagents are permitted by this role policy.' };
   });
-  if (!helpers.length) return;
-  pi.registerTool({
-    name: TOOL, label: 'Orca role helpers', executionMode: 'sequential',
-    description: 'Run selected local Pi helper tasks. A new model route is tested with one task before parallel dispatch. Handle any unavailable task inline.',
-    parameters: { type: 'object', required: ['tasks'], additionalProperties: false, properties: {
-      tasks: { type: 'array', minItems: 1, maxItems: maxSubagents, items: {
-        type: 'object', required: ['agent', 'task'], additionalProperties: false,
-        properties: { agent: { type: 'string', enum: helpers.map(({ name }) => name) }, task: { type: 'string' } },
-      } },
-    } },
-    async execute(_id, { tasks }, signal, _update, ctx) {
-      const ownerRunId = randomUUID();
-      const results = await dispatchSelectedTasks(tasks, available, maxSubagents, compatibility, ({ agent, task }, index) => {
-        const { model, thinking } = available.get(agent);
-        return runLeaf(pi, { requestId: randomUUID(), ownerRunId, nodeId: String(index + 1), agent, task,
-          context: 'fresh', cwd: ctx.cwd, model, thinking, timeoutMs: 300000,
-          intercomBridge: { mode: 'off' }, result: { kind: 'text' } }, signal);
-      });
-      const text = results.map(({ status, result, error }, index) =>
-        `${index + 1}. ${tasks[index].agent}: ${status}\n${result?.text ?? error ?? 'Work inline if the task remains incomplete.'}`).join('\n\n');
-      return { content: [{ type: 'text', text }], details: { results } };
-    },
+  pi.on('tool_result', (event) => {
+    if (event.toolName === 'subagent') {
+      policy?.recordToolResult({ callId: event.toolCallId, result: event.details, isError: event.isError });
+    }
   });
 }

@@ -7,7 +7,7 @@ complete that work inline and record the limitation.
 
 | Provider | Bundled helper name for `scout` | Invocation and completion |
 | --- | --- | --- |
-| Pi with pi-subagents | `orca-pod-scout` | `orca_pod_helpers`, native foreground results |
+| Pi with pi-subagents | `orca-pod-scout` | native `subagent`, foreground results or background notifications |
 | Claude Code | `scout` | `Agent`, wait for foreground result or background notification |
 | Codex | `orca_scout` | `spawn_agent` with `agent_type`, then `wait_agent` until all return |
 | Qoder | `scout` | native `Agent`, wait for the reported result |
@@ -23,28 +23,36 @@ recursive helpers to work around policy.
 ## Pi child sessions
 
 The role policy registers selected definitions in the active session through
-pi-subagents. It uses local foreground children, with discovered and child-only
-extensions excluded. Foreground sessions inherit the providers registered in the
-parent's model registry. If a provider requires its own per-child hooks, the
-configured helper needs a different runtime, or preflight cannot resolve the
-model or register the definition, use inline work. For a new provider/model
-combination verify one child before parallel work. A provider-hook failure ends
-fan-out for that route. Do not assume a hard-coded provider extension name.
+pi-subagents. Use the native tool and its native status and completion events:
 
 ```javascript
-orca_pod_helpers({ tasks: [
-  { agent: "orca-pod-scout", task: "Trace the provider adapter entry point." },
-  { agent: "orca-pod-scout", task: "Trace the setup form model selection." },
-] })
+subagent({ agent: "orca-pod-scout", task: "Trace the provider adapter entry point.", async: true })
 ```
 
-The runtime guard limits work to selected names, configured models and effort,
-and the profile concurrency. It blocks background/workflow routes that could
-load ambient diagnostics. It also removes known delegation tools for an inline
-role. A compatible main Pi role retains Lens. The launcher disables detected
-automatic scan, test and rewrite flags for the session. Diagnostics belong to the
-main role, including the cumulative pass and any fix-delta rechecks. Verifier
-may check criteria or approved commands in self mode.
+The parent may continue independent work while the child runs. Assign explicit,
+non-overlapping write paths to each child and the parent: all share one folder,
+and that separation is an agreement in the assignments, not technically enforced.
+Wait for all children and their writes before review or stage handoff; a launch
+receipt is not completion. Use native completion notifications, or a foreground
+result, rather than timers or polling. A one-shot `subagent({ action: "status", id })`
+can inspect a run; do not manage another role's runs.
+
+For each new provider/model/thinking route, verify one child completes successfully
+before parallel fan-out. After that, the bounded native `workflow: "parallel"`
+with selected agents and explicit `async` is supported within `max_subagents`.
+The guard blocks unselected names, model overrides, unsupported workflow forms,
+unknown process status and excess children; do not bypass it. In the tested
+versions the native snapshot displays at most 8 children per workflow, so wider
+workflows are refused even when `max_subagents` is higher. The snapshot displays
+at most 20 runs; once its history is truncated the guard refuses new launches
+rather than guessing whether omitted processes have ended. Finish existing work,
+report the limitation and work inline. Child sessions exclude ambient diagnostic extensions. Foreground children use the parent model
+registry; background children run in an isolated process and a provider requiring
+per-child extensions may be unavailable. If registration, route preflight or
+completion accounting is incompatible, stop delegating through that route, work
+inline and report the limitation. A compatible main Pi role retains Lens, and its
+diagnostics remain the main role's responsibility, including cumulative and
+fix-delta checks. Verifier may check criteria or approved commands in self mode.
 
 ## Native settings and permissions
 

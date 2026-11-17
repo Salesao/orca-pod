@@ -76,8 +76,12 @@ There are up to five profiles. Each has its own `max_subagents` (6 by default,
   `orca skills install --skill orca-cli`. Check with `orca skills installed`. Without
   the skill the pipeline does not stop and relies on `orca --help`.
 - Pi, Claude Code, Codex, Qoder or OMP.
-  - Pi helpers were verified with `npm:pi-subagents` 0.81.0. The role retains Lens;
-    local helpers inherit model providers without loading diagnostic extensions.
+  - Native Pi helpers were integration-tested with Pi 1.4.0 and `npm:pi-subagents`
+    0.81.0 and 0.88.1 using a local model server. The role retains Lens; children
+    exclude ambient diagnostic extensions. Background helpers run in an isolated
+    process, so provider routes needing child extensions may require inline work.
+    Independent parent work can continue, but all children must finish before
+    review or handoff; shared-folder write boundaries are not technically enforced.
   - For Claude Code, the helpers from `agents/claude/` are linked into `~/.claude/agents/`
     by `scripts/link-agents.sh`.
   - For Codex, the launcher registers the helpers from `agents/codex/` (`orca_worker`,

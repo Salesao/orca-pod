@@ -117,8 +117,12 @@ form, profile copies, and disabled delegation; disabled helpers are not launched
 | Chief Reviewer | reviewer, evidence-auditor, scout |
 
 Resolve provider-native names at runtime. A missing/incompatible definition
-requires inline work. Pi foreground children inherit registered providers and
-exclude diagnostic extensions. Diagnostics stay with the main role.
+requires inline work. Pi uses the native `subagent` tool and excludes diagnostic
+extensions from children. Foreground children use the parent model registry;
+background children run in an isolated process and may not support providers that
+need per-child extensions. The parent may do independent work while they run,
+but must wait for every child before review or stage handoff. Shared-folder write
+boundaries are an instruction, not a technical lock. Diagnostics stay with the main role.
 
 Qoder uses `qodercli --list-models` and offers `none`, `low`, `medium`, `high`,
 `xhigh` and `max`, passed as `--reasoning-effort`; per-model support is not
