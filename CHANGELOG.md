@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.1.0 - 2026-11-17
+
+### Added
+
+- **Native Pi delegation.** Pi roles use the standard `subagent` tool for selected helpers, including
+  background runs and bounded parallel workflows. A parent can continue independent work while children run,
+  and must wait for all children before review or stage handoff.
+- **Real Pi integration checks.** An isolated local model server exercises native delegation, independent parent
+  work and concurrency limits with Pi 1.4.0 and `pi-subagents` 0.81.0 and 0.88.1.
+
+### Changed
+
+- The Pi role policy preserves selected models and thinking levels, child extension isolation, route preflight
+  and the profile's concurrency limit. It refuses unverified workflows, incompatible routes and status that
+  cannot be reconciled safely instead of silently relaxing those protections.
+- Parent and child assignments share a working folder; non-overlapping write paths are agreed in the task and
+  are not technically enforced. Tested native status snapshots limit one parallel workflow to 8 children and
+  can stop delegation when a history of more than 20 runs is truncated.
+
 ## 1.0.1 - 2026-11-16
 
 ### Added
