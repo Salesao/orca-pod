@@ -23,13 +23,16 @@ recursive helpers to work around policy.
 ## Pi child sessions
 
 The role policy registers selected definitions in the active session through
-pi-subagents. Use the native tool and its native status and completion events:
+pi-subagents. For a single helper, pass `agent` and `task`. The optional launch
+fields are `async`, `model` (the selected route) and `options.timeoutMs`.
+Omit `worktree` and `output` entirely, even when their value would be `false`.
+For a foreground result, use
 
 ```javascript
-subagent({ agent: "orca-pod-scout", task: "Trace the provider adapter entry point.", async: true })
+subagent({ agent: "orca-pod-scout", task: "Trace the provider adapter entry point.", async: false })
 ```
 
-The parent may continue independent work while the child runs. Assign explicit,
+With `async: true`, the parent may continue independent work while the child runs. Assign explicit,
 non-overlapping write paths to each child and the parent: all share one folder,
 and that separation is an agreement in the assignments, not technically enforced.
 Wait for all children and their writes before review or stage handoff; a launch

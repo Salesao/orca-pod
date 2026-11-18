@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { createNativeSubagentPolicy } from './native-subagent-policy.mjs';
+import { createNativeSubagentPolicy, roleSubagentDeclaration } from './native-subagent-policy.mjs';
 
 const REGISTER = 'pi-subagents:runtime-agent-register:v1';
 const RPC_REQUEST = 'subagents:rpc:v1:request';
@@ -102,6 +102,14 @@ export default function (pi) {
   });
   pi.on('session_shutdown', dispose);
   pi.on('before_agent_start', filterTools);
+  pi.on('context_with_system', ({ messages }) => {
+    if (!policy) return;
+    return { messages: messages.map((message) => {
+      if (message.role !== 'system' || !message.toolsAdded?.some((tool) => tool.name === 'subagent')) return message;
+      return { ...message, toolsAdded: message.toolsAdded.map((tool) => tool.name === 'subagent'
+        ? roleSubagentDeclaration(tool, available, maxSubagents) : tool) };
+    }) };
+  });
   pi.on('tool_call', (event, ctx) => {
     if (!delegationTool(event.toolName)) return;
     if (event.toolName === 'subagent' && available.size && policy) {

@@ -2,8 +2,42 @@ const SNAPSHOT_KIND = 'pi-subagents.async-status-snapshot';
 const TERMINAL_STATES = new Set(['complete', 'failed', 'partial', 'stopped', 'rejected']);
 const READ_ONLY_ACTIONS = new Set(['list', 'guide', 'models', 'status']);
 
+// Project the role policy onto Pi's model-facing declaration. Keep only fields
+// the installed native tool declares (its enabled features can vary by session).
+export function roleSubagentDeclaration(tool, available, maxSubagents) {
+  const agent = { type: 'string', enum: [...available.keys()] };
+  const model = { type: 'string', description: 'Optional. Omit to use the selected agent model and thinking level.' };
+  const task = { type: 'string', minLength: 1 };
+  const properties = {
+    agent, task, model,
+    async: { type: 'boolean', description: 'Use false for a foreground result or true for a background notification.' },
+    workflow: { type: 'string', enum: ['parallel'], description: 'For parallel launches, supply args.tasks and an explicit async.' },
+    args: { type: 'object', additionalProperties: false, required: ['tasks'], properties: {
+      tasks: { type: 'array', minItems: 1, maxItems: maxSubagents, items: {
+        type: 'object', required: ['agent', 'task'], additionalProperties: false, properties: { agent, task, model },
+      } },
+    } },
+    action: { type: 'string', enum: [...READ_ONLY_ACTIONS, 'stop'], description: 'Management only. Stop requires the id of a run owned by this role.' },
+    id: { type: 'string', description: 'Run id for a management action.' },
+    options: { type: 'object', description: 'Launches accept only timeoutMs. Read-only actions accept their native options.',
+      properties: { timeoutMs: { type: 'integer', minimum: 1, maximum: 300000 } } },
+  };
+  return { ...tool,
+    description: tool.description + '\nOrca Pod: to launch one selected helper, supply agent, task and async. Omit unused fields.',
+    parameters: { type: 'object', additionalProperties: false, properties: Object.fromEntries(
+      Object.entries(properties).filter(([key]) => Object.hasOwn(tool.parameters.properties, key))) },
+  };
+}
+
 function blocked(reason) {
   return { block: true, reason };
+}
+
+function rejectExtraFields(input, allowed, prefix = '') {
+  const extra = Object.keys(input).filter((key) => !allowed.includes(key));
+  if (extra.length) {
+    return blocked(`Orca Pod forbids these subagent fields: ${extra.map((key) => prefix + key).join(', ')}. Omit them entirely.`);
+  }
 }
 
 function plainObject(value) {
@@ -44,11 +78,15 @@ function allowedModel(model, helper) {
   return typeof model === 'string' && (model === helper.model || model === `${helper.model}:${helper.thinking}`);
 }
 
-function safeOptions(options) {
-  if (options === undefined) return true;
-  if (!plainObject(options) || Object.keys(options).some((key) => key !== 'timeoutMs')) return false;
-  return options.timeoutMs === undefined ||
-    (Number.isSafeInteger(options.timeoutMs) && options.timeoutMs > 0 && options.timeoutMs <= 300000);
+function checkLaunchOptions(options) {
+  if (options === undefined) return;
+  if (!plainObject(options)) return blocked('Subagent options must be an object.');
+  const extra = rejectExtraFields(options, ['timeoutMs'], 'options.');
+  if (extra) return extra;
+  const { timeoutMs } = options;
+  if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300000)) {
+    return blocked('Subagent options.timeoutMs must be an integer between 1 and 300000.');
+  }
 }
 
 /** Restrict native calls without implementing or wrapping the native tool. */
@@ -139,28 +177,38 @@ export function createNativeSubagentPolicy({ helpers, maxSubagents, inspectStatu
       return blocked('Native subagent policy is unavailable; do not delegate.');
     }
     if (input.action !== undefined) {
-      const fields = Object.keys(input);
-      if (READ_ONLY_ACTIONS.has(input.action) && fields.every((key) => ['action', 'id', 'options'].includes(key))) return;
-      if (input.action === 'stop' && typeof input.id === 'string' && runToCall.has(input.id) &&
-          fields.every((key) => ['action', 'id'].includes(key))) return;
+      if (READ_ONLY_ACTIONS.has(input.action)) return rejectExtraFields(input, ['action', 'id', 'options']);
+      if (input.action === 'stop' && typeof input.id === 'string' && runToCall.has(input.id)) {
+        return rejectExtraFields(input, ['action', 'id']);
+      }
       return blocked('This native subagent action is outside the selected role policy.');
     }
     const parallel = input.workflow === 'parallel';
     const fields = parallel ? ['workflow', 'args', 'async', 'options'] : ['agent', 'task', 'async', 'model', 'options'];
-    if (Object.keys(input).some((key) => !fields.includes(key)) ||
-        (input.async !== undefined && typeof input.async !== 'boolean') || !safeOptions(input.options) ||
-        (parallel && typeof input.async !== 'boolean')) {
-      return blocked('Use only a selected native subagent or a bounded parallel workflow.');
+    const invalidField = rejectExtraFields(input, fields) ?? checkLaunchOptions(input.options);
+    if (invalidField) return invalidField;
+    if ((parallel || input.async !== undefined) && typeof input.async !== 'boolean') {
+      return blocked('Supply a boolean async field for this subagent call.');
     }
-    if (parallel && (!plainObject(input.args) || Object.keys(input.args).some((key) => key !== 'tasks'))) {
-      return blocked('The native parallel workflow has unsupported arguments.');
+    if (parallel) {
+      if (!plainObject(input.args)) return blocked('The native parallel workflow requires an args object with tasks.');
+      const extra = rejectExtraFields(input.args, ['tasks'], 'args.');
+      if (extra) return extra;
     }
     const tasks = parallel ? input.args.tasks : [{ agent: input.agent, task: input.task, model: input.model }];
-    if (!Array.isArray(tasks) || !tasks.length || tasks.length > maxSubagents || tasks.some((task) =>
-      !plainObject(task) || Object.keys(task).some((key) => !['agent', 'task', 'model'].includes(key)) ||
-      typeof task.agent !== 'string' || typeof task.task !== 'string' || !task.task.trim() ||
-      !available.has(task.agent) || !allowedModel(task.model, available.get(task.agent)))) {
-      return blocked('The subagent, model, task or concurrency is outside this role policy.');
+    if (!Array.isArray(tasks) || !tasks.length || tasks.length > maxSubagents) {
+      return blocked('The number of subagent tasks is outside this role policy.');
+    }
+    for (const [index, task] of tasks.entries()) {
+      if (!plainObject(task)) return blocked(`Subagent args.tasks[${index}] must be an object.`);
+      if (parallel) {
+        const extra = rejectExtraFields(task, ['agent', 'task', 'model'], `args.tasks[${index}].`);
+        if (extra) return extra;
+      }
+      if (typeof task.agent !== 'string' || typeof task.task !== 'string' || !task.task.trim() ||
+          !available.has(task.agent) || !allowedModel(task.model, available.get(task.agent))) {
+        return blocked('The subagent, model or task is outside this role policy.');
+      }
     }
     if (reservations.has(callId)) return blocked('The subagent call identity is already active.');
     let snapshot;

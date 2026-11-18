@@ -47,11 +47,12 @@ async function scenario(mode) {
     req.on('end', () => {
       try {
         const request = JSON.parse(body);
-        const parent = (request.tools ?? []).some((tool) => tool.function?.name === 'subagent');
+        const subagent = (request.tools ?? []).find((tool) => tool.function?.name === 'subagent');
+        const parent = Boolean(subagent);
         const messages = request.messages ?? [];
         const second = messages.some((message) => message.role === 'user' && JSON.stringify(message.content).includes('SECOND_PROBE'));
         const third = messages.some((message) => message.role === 'user' && JSON.stringify(message.content).includes('THIRD_PROBE'));
-        requests.push({ parent, at: Date.now() });
+        requests.push({ parent, at: Date.now(), parameters: subagent?.function.parameters });
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
         const chunk = (delta, finishReason = null) => res.write(`data: ${JSON.stringify({
           id: 'chatcmpl-test', object: 'chat.completion.chunk', created: 1, model: 'fake-model',
@@ -62,13 +63,18 @@ async function scenario(mode) {
           (mode === 'flow' && launchIndex === 1 && second) || (mode === 'flow' && launchIndex === 2 && third));
         if (launch) {
           launchIndex++;
-          const input = mode === 'flow' && launchIndex === 2
-            ? { workflow: 'parallel', args: { tasks: [
+          let input;
+          if (mode === 'foreground') {
+            input = { agent: 'orca-pod-scout', task: 'Return CHILD_DONE.', async: false };
+          } else if (mode === 'flow' && launchIndex === 2) {
+            input = { workflow: 'parallel', args: { tasks: [
               { agent: 'orca-pod-scout', task: 'Return CHILD_DONE.' },
               { agent: 'orca-pod-reviewer', task: 'Return CHILD_DONE.' },
-            ] }, async: true, options: { timeoutMs: 15000 } }
-            : { agent: mode === 'unknown' ? 'unselected-helper' : 'orca-pod-scout',
+            ] }, async: true, options: { timeoutMs: 15000 } };
+          } else {
+            input = { agent: mode === 'unknown' ? 'unselected-helper' : 'orca-pod-scout',
               task: 'Return CHILD_DONE.', async: true, options: { timeoutMs: 15000 } };
+          }
           chunk({ role: 'assistant', tool_calls: [{ index: 0, id: `call_${launchIndex}`,
             type: 'function', function: { name: 'subagent', arguments: JSON.stringify(input) } }] });
           chunk({}, 'tool_calls');
@@ -124,6 +130,7 @@ async function scenario(mode) {
     const checkDone = () => {
       const first = results.get('call_1');
       if (mode === 'unknown' && first?.isError && parentContinuedAt) resolveDone();
+      if (mode === 'foreground' && first && parentContinuedAt) resolveDone();
       if (mode === 'limit' && first?.runId && results.get('call_2')?.isError && notifications >= 1 && terminal.has(first.runId)) resolveDone();
       const third = results.get('call_3');
       if (mode === 'flow' && first?.runId && third?.runId && notifications >= 3 && terminal.has(first.runId) && terminal.has(third.runId)) resolveDone();
@@ -141,8 +148,11 @@ async function scenario(mode) {
           else parentReadAt = Date.now();
         }
         if (event.type === 'tool_execution_end' && event.toolName === 'subagent') {
+          const rows = event.result?.details?.results;
+          const foregroundComplete = mode === 'foreground' && !event.isError && rows?.length === 1 &&
+            rows[0]?.exitCode === 0 && !rows[0].detached;
           results.set(event.toolCallId, { isError: event.isError, runId: event.result?.details?.runId,
-            mode: event.result?.details?.mode, message: text(event.result) });
+            mode: event.result?.details?.mode, message: text(event.result), foregroundComplete });
           if (event.isError && mode === 'flow') { errors.push(text(event.result)); resolveDone(); }
         }
         if (event.type === 'message_end' && event.message?.role === 'assistant' && text(event.message).includes('PARENT_CONTINUES')) {
@@ -182,7 +192,7 @@ async function scenario(mode) {
   } finally {
     clearTimeout(timeout);
     const pendingChildren = () => [...results.values()].filter((result) => result.mode === 'single' &&
-      result.runId && !terminal.has(result.runId));
+      result.runId && !result.foregroundComplete && !terminal.has(result.runId));
     if (pendingChildren().length && proc && proc.exitCode === null && proc.signalCode === null) {
       await new Promise((resolve) => {
         const deadline = setTimeout(resolve, 17000);
@@ -218,6 +228,20 @@ test('real Pi blocks an unselected helper', { skip, timeout: 75000 }, async () =
   assert.equal(run.results.get('call_1')?.isError, true);
   assert.match(run.results.get('call_1')?.message ?? '', /outside this role policy/i);
   assert.equal(run.requests.filter((request) => !request.parent).length, 0);
+});
+
+test('real Pi advertises the role schema and completes the first foreground call', { skip, timeout: 75000 }, async () => {
+  const run = await scenario('foreground');
+  const schema = run.requests[0].parameters;
+  assert.deepEqual(Object.keys(schema.properties).sort(),
+    ['action', 'agent', 'args', 'async', 'id', 'model', 'options', 'task', 'workflow']);
+  assert.equal(schema.additionalProperties, false);
+  assert.deepEqual(schema.properties.agent.enum, ['orca-pod-scout', 'orca-pod-reviewer']);
+  assert.equal(run.results.size, 1);
+  const result = run.results.get('call_1');
+  assert.equal(result.isError, false, result.message);
+  assert.match(result.message, /CHILD_DONE/);
+  assert.equal(run.requests.filter((request) => !request.parent).length, 1);
 });
 
 test('real Pi enforces the configured concurrent-child limit', { skip, timeout: 75000 }, async () => {

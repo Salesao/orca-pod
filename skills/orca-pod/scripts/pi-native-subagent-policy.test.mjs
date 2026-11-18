@@ -90,6 +90,7 @@ async function makeHarness(t, { helpers = selected, maxSubagents = 1, statusAvai
   return {
     events, status, proofs, statusRequested, disposedCount: () => disposedCount, releaseStatus: () => releaseStatus(),
     shutdown: () => hooks.get('session_shutdown')?.(), active: () => [...active],
+    context: (messages) => hooks.get('context_with_system')({ messages }, ctx),
     call: (callId, input) => hooks.get('tool_call')({ toolName: 'subagent', toolCallId: callId, input }, ctx),
     nested: (parentToolCallId, toolCallId, input) => hooks.get('tool_call')({
       toolName: 'subagent_launch', parentToolCallId, toolCallId, input,
@@ -122,6 +123,45 @@ function processEnded(harness, runId) {
 test('the registered native tool is activated when it was initially inactive', async (t) => {
   const h = await makeHarness(t, { initialTools: ['read'] });
   assert.deepEqual(h.active(), ['read', 'subagent']);
+});
+
+test('initial and later native declarations expose only role fields also supported by Pi', async (t) => {
+  const h = await makeHarness(t);
+  const properties = Object.fromEntries(['agent', 'task', 'async', 'action', 'worktree', 'output'].map((key) => [key, {}]));
+  const native = { name: 'subagent', description: 'Native guidance.', parameters: { type: 'object', properties } };
+  const read = { name: 'read' };
+  const user = { role: 'user', content: 'Inspect.' };
+  const messages = [{ role: 'system', toolsAdded: [read, native] }, user, { role: 'system', toolsAdded: [native] }];
+  const projected = h.context(messages).messages;
+  for (const tool of [projected[0].toolsAdded[1], projected[2].toolsAdded[0]]) {
+    assert.deepEqual(Object.keys(tool.parameters.properties).sort(), ['action', 'agent', 'async', 'task']);
+    assert.deepEqual(tool.parameters.properties.agent.enum, ['first', 'second']);
+    assert.deepEqual(tool.parameters.properties.action.enum, ['list', 'guide', 'models', 'status', 'stop']);
+  }
+  assert.equal(projected[0].toolsAdded[0], read);
+  assert.equal(projected[1], user);
+  assert.ok(Object.hasOwn(native.parameters.properties, 'output'));
+  h.shutdown();
+  assert.equal(h.context(messages), undefined);
+});
+
+test('forbidden subagent fields are identified at the level where they were supplied', async (t) => {
+  const h = await makeHarness(t);
+  const single = { ...task('first'), async: false };
+  const parallel = { workflow: 'parallel', async: false, args: { tasks: [{ agent: 'first', task: 'Inspect.' }] } };
+  for (const [input, fields] of [
+    [{ ...single, worktree: false, output: false }, ['worktree', 'output']],
+    [{ ...single, options: { output: false } }, ['options.output']],
+    [{ ...parallel, worktree: false }, ['worktree']],
+    [{ ...parallel, args: { ...parallel.args, output: false } }, ['args.output']],
+    [{ ...parallel, args: { tasks: [{ ...parallel.args.tasks[0], output: false }] } }, ['args.tasks[0].output']],
+    [{ action: 'status', worktree: false }, ['worktree']],
+  ]) {
+    const rejection = await h.call('call-1', input);
+    assert.equal(rejection?.block, true);
+    for (const field of fields) assert.ok(rejection.reason.includes(field), rejection.reason);
+  }
+  assert.equal(await h.call('call-1', single), undefined);
 });
 
 test('concurrent native launches never reserve more than the configured limit', async (t) => {
