@@ -44,10 +44,6 @@ function plainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function routeOf(helper) {
-  return JSON.stringify([helper.model, helper.thinking]);
-}
-
 function closedProcess(instance) {
   if (!plainObject(instance) || typeof instance.processInstanceId !== 'string' || !instance.processInstanceId ||
       !Number.isFinite(instance.closeObservedAt) ||
@@ -61,7 +57,7 @@ function closedProcess(instance) {
 }
 
 function terminalProof(proof, runId) {
-  if (!plainObject(proof) || proof.version !== 1 || proof.runId !== runId) return false;
+  if (typeof runId !== 'string' || !runId || !plainObject(proof) || proof.version !== 1 || proof.runId !== runId) return false;
   if (proof.kind === 'workflow') {
     return proof.state === 'observed' && proof.dispatchClosed === true && Number.isFinite(proof.observedAt) &&
       Array.isArray(proof.children) && proof.children.every((child) => terminalProof(child, child?.runId));
@@ -96,15 +92,15 @@ export function createNativeSubagentPolicy({ helpers, maxSubagents, inspectStatu
   const runToCall = new Map();
   const earlyEvents = new Map();
   const finished = new Set();
-  const routes = new Map();
   let disposed = false;
-  let invalid = !Number.isSafeInteger(maxSubagents) || maxSubagents < 1 || typeof inspectStatus !== 'function';
+  let invalid = !Number.isSafeInteger(maxSubagents) || maxSubagents < 1 || typeof inspectStatus !== 'function'
+    ? 'Invalid concurrency limit or missing status inspector.' : undefined;
   let queue = Promise.resolve();
 
   function remember(runId, field, value) {
-    if (typeof runId !== 'string' || !runId) return;
+    if (typeof runId !== 'string' || !runId || finished.has(runId)) return;
     if (!earlyEvents.has(runId) && earlyEvents.size >= 256) {
-      invalid = true;
+      invalid = 'Too many lifecycle events with no matching launch.';
       return;
     }
     const event = earlyEvents.get(runId) ?? {};
@@ -112,10 +108,7 @@ export function createNativeSubagentPolicy({ helpers, maxSubagents, inspectStatu
     earlyEvents.set(runId, event);
   }
 
-  function finishIfProven(callId) {
-    const item = reservations.get(callId);
-    if (!item || item.completion === undefined || item.terminal !== true) return;
-    for (const route of item.preflightRoutes) routes.set(route, item.completion ? 'ready' : 'failed');
+  function release(callId, item) {
     reservations.delete(callId);
     if (item.runId) {
       finished.add(item.runId);
@@ -124,57 +117,81 @@ export function createNativeSubagentPolicy({ helpers, maxSubagents, inspectStatu
     }
   }
 
+  function finishIfProven(callId) {
+    const item = reservations.get(callId);
+    if (item?.completed && item.terminal) release(callId, item);
+  }
+
   function attach(callId, runId) {
     const item = reservations.get(callId);
     if (!item || typeof runId !== 'string' || !runId) return;
     if ((item.runId && item.runId !== runId) || (runToCall.has(runId) && runToCall.get(runId) !== callId)) {
-      invalid = true;
+      invalid = 'A native run identity conflicts with an existing launch.';
       return;
     }
     item.runId = runId;
     runToCall.set(runId, callId);
     const buffered = earlyEvents.get(runId);
-    if (buffered?.completion !== undefined) item.completion = buffered.completion;
+    if (buffered?.completed) item.completed = true;
     if (buffered?.terminal === true) item.terminal = true;
     finishIfProven(callId);
   }
 
   function reconcile(snapshot) {
     if (!plainObject(snapshot) || !plainObject(snapshot.fleet) || snapshot.fleet.version !== 1 ||
-        !Number.isSafeInteger(snapshot.fleet.totalActive) || snapshot.fleet.totalActive < 0 ||
-        !plainObject(snapshot.asyncSnapshot) || snapshot.asyncSnapshot.kind !== SNAPSHOT_KIND ||
+        !Number.isSafeInteger(snapshot.fleet.totalActive) || snapshot.fleet.totalActive < 0) {
+      return 'Missing or incompatible fleet status v1.';
+    }
+    if (!plainObject(snapshot.asyncSnapshot) || snapshot.asyncSnapshot.kind !== SNAPSHOT_KIND ||
         snapshot.asyncSnapshot.version !== 1 || !Array.isArray(snapshot.asyncSnapshot.runs) ||
-        !plainObject(snapshot.asyncSnapshot.omitted)) return false;
+        !plainObject(snapshot.asyncSnapshot.omitted)) return 'Missing or incompatible async status snapshot v1.';
     const omitted = snapshot.asyncSnapshot.omitted;
-    if (omitted.runs !== 0 || omitted.children !== 0 || omitted.byteLimitExceeded !== false) return false;
+    if (omitted.runs !== 0 || omitted.children !== 0 || omitted.byteLimitExceeded !== false) {
+      return `Incomplete async snapshot (omitted runs=${omitted.runs}, children=${omitted.children}, byteLimitExceeded=${omitted.byteLimitExceeded}).`;
+    }
     let knownActive = 0;
+    const seen = new Set();
     for (const run of snapshot.asyncSnapshot.runs) {
-      if (!plainObject(run) || typeof run.id !== 'string' || typeof run.state !== 'string') return false;
+      if (!plainObject(run) || typeof run.id !== 'string' || !run.id || typeof run.state !== 'string') return 'Malformed run identity or state in async snapshot.';
+      if (seen.has(run.id)) return `Duplicate run id ${run.id} in async snapshot.`;
+      seen.add(run.id);
       if (runToCall.has(run.id)) {
         if (!TERMINAL_STATES.has(run.state)) {
           knownActive++;
         } else if (terminalProof(snapshot.proofs?.get(run.id), run.id)) {
           const callId = runToCall.get(run.id);
           const item = reservations.get(callId);
-          item.completion ??= run.state === 'complete';
+          item.completed = true;
           item.terminal = true;
           finishIfProven(callId);
         }
+      } else if (!TERMINAL_STATES.has(run.state)) {
+        return `Unmatched ${run.state} run ${run.id}.`;
       } else if (!finished.has(run.id)) {
-        if (!TERMINAL_STATES.has(run.state) || !terminalProof(snapshot.proofs?.get(run.id), run.id)) return false;
+        if (!terminalProof(snapshot.proofs?.get(run.id), run.id)) return `Terminal proof missing or invalid for unmatched run ${run.id}.`;
         finished.add(run.id);
       }
     }
     // The public fleet can include foreground children, which are not in the async snapshot.
     // Refuse extra or unmatched activity rather than undercount it.
     const pending = [...reservations.values()].filter((item) => !item.runId).length;
-    if (snapshot.fleet.totalActive > knownActive + pending) return false;
-    return true;
+    if (snapshot.fleet.totalActive > knownActive + pending) {
+      return `Fleet reports ${snapshot.fleet.totalActive} active, with ${knownActive} matched runs and ${pending} pending calls.`;
+    }
+  }
+
+  async function checkedStatus() {
+    let snapshot;
+    try { snapshot = await inspectStatus(); }
+    catch (error) { return { reason: `Native subagent status unavailable. ${error.message}` }; }
+    if (disposed || invalid) return { reason: invalid ?? 'Session ended during the native status check.' };
+    const issue = reconcile(snapshot);
+    return issue ? { reason: `Native subagent status cannot be reconciled safely. ${issue}` } : { snapshot };
   }
 
   async function decide({ callId, input }) {
     if (disposed || invalid || typeof callId !== 'string' || !callId || !plainObject(input)) {
-      return blocked('Native subagent policy is unavailable; do not delegate.');
+      return blocked(invalid ?? 'Native subagent policy is unavailable or the call identity/input is invalid.');
     }
     if (input.action !== undefined) {
       if (READ_ONLY_ACTIONS.has(input.action)) return rejectExtraFields(input, ['action', 'id', 'options']);
@@ -196,43 +213,30 @@ export function createNativeSubagentPolicy({ helpers, maxSubagents, inspectStatu
       if (extra) return extra;
     }
     const tasks = parallel ? input.args.tasks : [{ agent: input.agent, task: input.task, model: input.model }];
-    if (!Array.isArray(tasks) || !tasks.length || tasks.length > maxSubagents) {
-      return blocked('The number of subagent tasks is outside this role policy.');
-    }
+    if (!Array.isArray(tasks) || !tasks.length) return blocked('Supply at least one native helper task.');
+    if (tasks.length > maxSubagents) return blocked(`Workflow requested ${tasks.length} children, exceeding the configured concurrency limit of ${maxSubagents}.`);
     for (const [index, task] of tasks.entries()) {
       if (!plainObject(task)) return blocked(`Subagent args.tasks[${index}] must be an object.`);
       if (parallel) {
         const extra = rejectExtraFields(task, ['agent', 'task', 'model'], `args.tasks[${index}].`);
         if (extra) return extra;
       }
-      if (typeof task.agent !== 'string' || typeof task.task !== 'string' || !task.task.trim() ||
-          !available.has(task.agent) || !allowedModel(task.model, available.get(task.agent))) {
-        return blocked('The subagent, model or task is outside this role policy.');
-      }
+      if (!available.has(task.agent)) return blocked(`The helper requested for task ${index + 1} is outside this role policy. Selected: ${[...available.keys()].join(', ')}.`);
+      if (typeof task.task !== 'string' || !task.task.trim()) return blocked(`Task ${index + 1} has no assignment text.`);
+      if (!allowedModel(task.model, available.get(task.agent))) return blocked(`The model override for ${task.agent} is outside this role policy. Omit it to use the selected route.`);
     }
     if (reservations.has(callId)) return blocked('The subagent call identity is already active.');
-    let snapshot;
-    try { snapshot = await inspectStatus(); }
-    catch { return blocked('Native subagent status is unavailable; do not delegate.'); }
-    if (disposed || invalid) return blocked('Native subagent policy changed while checking status; do not delegate.');
-    if (!reconcile(snapshot)) return blocked('Native subagent status cannot be reconciled safely; do not delegate.');
+    const { snapshot, reason } = await checkedStatus();
+    if (reason) return blocked(reason);
     const snapshotLimit = snapshot.asyncSnapshot.caps?.maxChildrenPerNode;
     if (parallel && (!Number.isSafeInteger(snapshotLimit) || snapshotLimit < 1 || tasks.length > snapshotLimit)) {
-      return blocked('The native status snapshot child limit is too small for this parallel workflow.');
+      return blocked(`The native snapshot child limit is ${snapshotLimit ?? 'unknown'}; the workflow requested ${tasks.length}.`);
     }
     const used = [...reservations.values()].reduce((total, item) => total + item.weight, 0);
-    if (used + tasks.length > maxSubagents) return blocked('The configured subagent concurrency limit is reached.');
-    const taskRoutes = tasks.map((task) => routeOf(available.get(task.agent)));
-    for (const route of taskRoutes) {
-      if (routes.get(route) === 'checking') return blocked('Wait for the first child on this model route to finish.');
-      if (routes.get(route) === 'failed') return blocked('The first child on this model route failed; do not fan out.');
-      if (!routes.has(route) && taskRoutes.filter((candidate) => candidate === route).length > 1) {
-        return blocked('Run one child on each new model route before parallel fan-out.');
-      }
+    if (used + tasks.length > maxSubagents) {
+      return blocked(`The configured subagent concurrency limit is ${maxSubagents}. ${used} slots are reserved pending completion and terminal evidence, ${tasks.length} requested.`);
     }
-    const preflightRoutes = [...new Set(taskRoutes.filter((route) => !routes.has(route)))];
-    for (const route of preflightRoutes) routes.set(route, 'checking');
-    reservations.set(callId, { preflightRoutes, weight: tasks.length, asynchronous: input.async === true, terminal: false,
+    reservations.set(callId, { weight: tasks.length, asynchronous: input.async === true, terminal: false,
       parallel, tasks: tasks.map(({ agent, task }) => ({ agent, task })), launchedKeys: new Set() });
   }
 
@@ -262,7 +266,7 @@ export function createNativeSubagentPolicy({ helpers, maxSubagents, inspectStatu
       return blocked('The native parallel child does not match its approved task.');
     }
     attach(parentToolCallId, input.workflowRunId);
-    if (invalid) return blocked('Native workflow identity cannot be reconciled safely.');
+    if (invalid) return blocked(invalid);
     item.launchedKeys.add(input.key);
   }
 
@@ -275,29 +279,26 @@ export function createNativeSubagentPolicy({ helpers, maxSubagents, inspectStatu
     const item = reservations.get(callId);
     if (!item) return;
     if (plainObject(result)) attach(callId, result.asyncId ?? (item.asynchronous ? result.runId : undefined));
-    if (item.asynchronous) {
-      if (isError) for (const route of item.preflightRoutes) routes.set(route, 'failed');
-      return;
-    }
+    if (item.asynchronous) return;
     const rows = result?.results;
     if (isError || !Array.isArray(rows) || rows.length !== item.weight || rows.some((row) => row?.detached ||
         row?.interrupted || row?.timedOut || row?.stopped || row?.exitCode !== 0)) {
-      for (const route of item.preflightRoutes) routes.set(route, 'failed');
       return;
     }
-    for (const route of item.preflightRoutes) routes.set(route, 'ready');
-    reservations.delete(callId);
+    release(callId, item);
   }
 
   function recordCompletion(event) {
     if (!plainObject(event)) return;
     const runId = event.runId ?? event.id;
     if (typeof runId !== 'string' || !runId || !TERMINAL_STATES.has(event.state)) return;
-    const success = event.state === 'complete' && event.success === true;
     const callId = runToCall.get(runId);
-    if (!callId) return remember(runId, 'completion', success);
-    reservations.get(callId).completion = success;
+    if (!callId) return remember(runId, 'completed', true);
+    const item = reservations.get(callId);
+    if (item.completed) return;
+    item.completed = true;
     finishIfProven(callId);
+    if (item.asynchronous) return item.tasks;
   }
 
   function recordProcessTerminal(event) {
@@ -313,5 +314,5 @@ export function createNativeSubagentPolicy({ helpers, maxSubagents, inspectStatu
     disposed = true;
   }
 
-  return { admit, authorizeNested, recordStart, recordToolResult, recordCompletion, recordProcessTerminal, reconcile, dispose };
+  return { admit, authorizeNested, recordStart, recordToolResult, recordCompletion, recordProcessTerminal, checkedStatus, dispose };
 }

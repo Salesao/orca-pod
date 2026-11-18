@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 import register from '../pi-extension/role-policy.js';
+import { routeReceipts } from '../pi-extension/helper-route.mjs';
 
 const selected = [
   { name: 'first', model: 'provider/first-model', thinking: 'off', tools: ['read'] },
@@ -9,11 +13,14 @@ const selected = [
 
 async function makeHarness(t, { helpers = selected, maxSubagents = 1, statusAvailable = true, deferStatus = false,
   failRegistrationAt = -1, throwRegistrationAt = -1, hasStartedEvent = true, rawPolicy,
-  initialTools = ['read', 'subagent'], registeredTools = ['read', 'subagent'] } = {}) {
+  initialTools = ['read', 'subagent'], registeredTools = ['read', 'subagent'], sourceInfo } = {}) {
   let registrationCount = 0;
   let disposedCount = 0;
   let statusArrived;
   let releaseStatus;
+  let starting = true;
+  const calls = [];
+  const notes = [];
   const statusRequested = new Promise((resolve) => { statusArrived = resolve; });
   const status = { fleet: { version: 1, entries: [], totalActive: 0, omitted: 0 },
     asyncSnapshot: { kind: 'pi-subagents.async-status-snapshot', version: 1,
@@ -38,6 +45,7 @@ async function makeHarness(t, { helpers = selected, maxSubagents = 1, statusAvai
         payload.result = registrationCount === failRegistrationAt ? { ok: false } :
           { ok: true, registration: { dispose() { disposedCount++; } } };
       } else if (name === 'subagents:rpc:v1:request') {
+        calls.push(payload.method);
         const response = statusAvailable
           ? { version: 1, requestId: payload.requestId, success: true,
             data: payload.method === 'ping'
@@ -55,19 +63,20 @@ async function makeHarness(t, { helpers = selected, maxSubagents = 1, statusAvai
                   details: { mode: 'management', results: [] }, ...status } }
           : { version: 1, requestId: payload.requestId, success: false, error: { code: 'unavailable' } };
         const reply = () => events.emit(`subagents:rpc:v1:reply:${payload.requestId}`, response);
-        if (deferStatus && payload.method === 'status' && !payload.params?.id) {
+        if (!starting && deferStatus && payload.method === 'status' && !payload.params?.id) {
           releaseStatus = reply;
           statusArrived();
         } else reply();
       }
-      for (const handler of listeners.get(name) ?? []) handler(payload);
+      return Promise.all([...listeners.get(name) ?? []].map((handler) => handler(payload)));
     },
   };
   const pi = {
     on: (name, handler) => hooks.set(name, handler),
     getActiveTools: () => active,
-    getAllTools: () => registeredTools.map((name) => ({ name })),
+    getAllTools: () => registeredTools.map((name) => ({ name, sourceInfo })),
     setActiveTools: (tools) => { active = tools.filter((name) => registeredTools.includes(name)); },
+    sendMessage: (message, options) => notes.push({ message, options }),
     events,
   };
   const ctx = {
@@ -86,17 +95,19 @@ async function makeHarness(t, { helpers = selected, maxSubagents = 1, statusAvai
     else process.env.ORCA_POD_PI_POLICY = previous;
   }
   await hooks.get('session_start')({}, ctx);
+  starting = false;
   t.after(() => hooks.get('session_shutdown')?.());
   return {
-    events, status, proofs, statusRequested, disposedCount: () => disposedCount, releaseStatus: () => releaseStatus(),
+    events, status, proofs, calls, notes, statusRequested, disposedCount: () => disposedCount, releaseStatus: () => releaseStatus(),
+    beforeAgent: () => hooks.get('before_agent_start')({}, ctx), setStatusAvailable: (value) => { statusAvailable = value; },
     shutdown: () => hooks.get('session_shutdown')?.(), active: () => [...active],
     context: (messages) => hooks.get('context_with_system')({ messages }, ctx),
     call: (callId, input) => hooks.get('tool_call')({ toolName: 'subagent', toolCallId: callId, input }, ctx),
     nested: (parentToolCallId, toolCallId, input) => hooks.get('tool_call')({
       toolName: 'subagent_launch', parentToolCallId, toolCallId, input,
     }, ctx),
-    result: (callId, details, isError = false) => hooks.get('tool_result')?.({
-      toolName: 'subagent', toolCallId: callId, isError, details, content: [], input: {},
+    result: (callId, details, isError = false, input = {}) => hooks.get('tool_result')?.({
+      toolName: 'subagent', toolCallId: callId, isError, details, content: [], input,
     }, ctx),
   };
 }
@@ -123,6 +134,90 @@ function processEnded(harness, runId) {
 test('the registered native tool is activated when it was initially inactive', async (t) => {
   const h = await makeHarness(t, { initialTools: ['read'] });
   assert.deepEqual(h.active(), ['read', 'subagent']);
+  assert.deepEqual(h.calls, ['ping', 'status']);
+  assert.match((await h.beforeAgent()).message.content, /preflight: ready.*Child execution is unobserved/s);
+  assert.equal(await h.beforeAgent(), undefined);
+});
+
+test('the role sees a preflight failure before work and can recover on a later launch', async (t) => {
+  const h = await makeHarness(t, { statusAvailable: false });
+  assert.match((await h.beforeAgent()).message.content, /unverified.*RPC ping failed.*unavailable/s);
+  assert.match((await h.call('early', task('first'))).reason, /RPC ping failed/);
+  h.setStatusAvailable(true);
+  assert.equal(await h.call('later', task('first')), undefined);
+  const conflict = await makeHarness(t, { sourceInfo: { path: '/node_modules/pi-interactive-subagents/index.js' } });
+  assert.match((await conflict.beforeAgent()).message.content, /pi-interactive-subagents/);
+  assert.ok(!conflict.active().includes('subagent'));
+  const missing = await makeHarness(t, { helpers: [{ name: 'first', model: 'unconfigured' }] });
+  assert.match((await missing.beforeAgent()).message.content, /unconfigured.*0 registry matches/);
+});
+
+test('Pi receipts keep launch configuration separate from child reply evidence', async (t) => {
+  const h = await makeHarness(t);
+  const input = task('first');
+  const rows = [{ agent: 'first', model: 'provider/first-model', thinking: 'off' }];
+  const receipt = () => h.result('result', { mode: 'single', results: rows }, false, input);
+  const route = (await receipt()).details.orcaPodHelperRoutes[0];
+  assert.deepEqual(route.requested, { model: 'provider/first-model', thinking: 'off' });
+  assert.deepEqual(route.observed, { model: null, thinking: null });
+  rows[0].messages = [{ role: 'assistant', model: 'actual-model', provider: 'actual-provider' }];
+  assert.deepEqual((await receipt()).details.orcaPodHelperRoutes[0].observed, { model: 'actual-provider/actual-model', thinking: null });
+});
+
+test('a same-session adapter-ready event refreshes startup evidence without a model call', async (t) => {
+  const h = await makeHarness(t, { statusAvailable: false });
+  h.setStatusAvailable(true);
+  await h.events.emit('subagents:rpc:v1:ready', { session: { sessionId: 'another-session' } });
+  assert.deepEqual(h.calls, ['ping']);
+  await h.events.emit('subagents:rpc:v1:ready', { session: { sessionId: 'session-1' } });
+  assert.deepEqual(h.calls, ['ping', 'ping', 'status']);
+  assert.match((await h.beforeAgent()).message.content, /preflight: ready/);
+});
+
+test('matched background completion reports routes without waking a new turn', async (t) => {
+  const h = await makeHarness(t);
+  assert.equal(await h.call('launch', task('first')), undefined);
+  await started(h, 'launch', 'run-1');
+  const event = { runId: 'run-1', state: 'complete', sessionId: 'session-1',
+    results: [{ agent: 'first', resolvedModel: { provider: 'actual', model: 'reply' } }] };
+  await h.events.emit('subagent:async-complete', event);
+  await h.events.emit('subagent:async-complete', event);
+  assert.equal(h.notes.length, 1);
+  assert.equal(h.notes[0].options.triggerTurn, false);
+  assert.deepEqual(h.notes[0].message.details.orcaPodHelperRoutes[0].observed, { model: 'actual/reply', thinking: null });
+});
+
+test('only the result-linked child session can establish observed model and runtime thinking', async (t) => {
+  const base = await mkdtemp(path.join(tmpdir(), 'orca-pi-child-route-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const parent = path.join(base, 'parent.jsonl');
+  const runId = 'aaaabbbb-cccc-dddd-eeee-ffff00001111';
+  const dir = path.join(base, 'parent', runId, 'run-0');
+  await mkdir(dir, { recursive: true });
+  const row = { agent: 'first', index: 0, exitCode: 0, sessionFile: path.join(dir, 'session.jsonl') };
+  const details = { runId, results: [row] };
+  const available = new Map([['first', selected[0]]]);
+  const receipt = async () => (await routeReceipts(task('first'), details, available, parent))[0];
+  const events = [
+    { type: 'session', id: 'child' },
+    { type: 'thinking_level_change', id: '1', parentId: null, thinkingLevel: 'low' },
+    { type: 'message', id: '2', parentId: '1', message: { role: 'assistant', provider: 'runtime', model: 'reported' } },
+    { type: 'thinking_level_change', id: '3', parentId: '2', thinkingLevel: 'high' },
+  ];
+  const contents = () => events.map((entry) => JSON.stringify(entry)).join('\n') + '\n';
+  await writeFile(row.sessionFile, contents());
+  assert.deepEqual((await receipt()).observed, { model: 'runtime/reported', thinking: 'low' });
+  events[3].parentId = null;
+  await writeFile(row.sessionFile, contents());
+  assert.equal((await receipt()).observedFrom, null);
+  events[3].parentId = '2';
+  const sibling = path.join(base, 'other-session.jsonl');
+  await writeFile(sibling, contents());
+  await rm(row.sessionFile);
+  await symlink(sibling, row.sessionFile);
+  assert.equal((await receipt()).observedFrom, null);
+  row.sessionFile = sibling;
+  assert.equal((await receipt()).observedFrom, null);
 });
 
 test('initial and later native declarations expose only role fields also supported by Pi', async (t) => {
@@ -215,36 +310,24 @@ test('a completion from another session cannot release a selected child', async 
   assert.notEqual((await h.call('call-3', task('second')))?.block, true);
 });
 
-test('a failed first child prevents further fan-out on its model route', async (t) => {
-  const h = await makeHarness(t, { maxSubagents: 2 });
-  assert.notEqual((await h.call('call-1', task('first')))?.block, true);
+test('a failed child releases its slot for a retry on the same route after termination', async (t) => {
+  const h = await makeHarness(t);
+  assert.equal(await h.call('call-1', task('first')), undefined);
   await started(h, 'call-1', 'run-1');
   completed(h, 'run-1', false);
-  processEnded(h, 'run-1');
   assert.equal((await h.call('call-2', task('first')))?.block, true);
-  assert.notEqual((await h.call('call-3', task('second')))?.block, true);
-});
-
-test('a later task failure does not invalidate an already proven model route', async (t) => {
-  const h = await makeHarness(t);
-  assert.notEqual((await h.call('call-1', task('first')))?.block, true);
-  await started(h, 'call-1', 'run-1');
-  completed(h, 'run-1');
   processEnded(h, 'run-1');
-  assert.notEqual((await h.call('call-2', task('first')))?.block, true);
-  await started(h, 'call-2', 'run-2');
-  completed(h, 'run-2', false);
-  processEnded(h, 'run-2');
-  assert.notEqual((await h.call('call-3', task('first')))?.block, true);
+  assert.equal(await h.call('call-3', task('first')), undefined);
 });
 
 test('after reload an unknown live child blocks until its terminal proof can be recovered', async (t) => {
   const h = await makeHarness(t);
   h.status.fleet.totalActive = 1;
   h.status.asyncSnapshot.runs = [{ id: 'previous-run', kind: 'subagent', label: 'first', state: 'running' }];
-  assert.equal((await h.call('call-1', task('second')))?.block, true);
+  assert.match((await h.call('call-1', task('second'))).reason, /Unmatched running run previous-run/);
   h.status.fleet.totalActive = 0;
   h.status.asyncSnapshot.runs[0].state = 'complete';
+  assert.match((await h.call('no-proof', task('second'))).reason, /Terminal proof missing or invalid.*previous-run/);
   h.proofs.set('previous-run', { version: 1, runId: 'previous-run', runnerProcessInstanceId: 'runner-old',
     state: 'observed', observedAt: 1,
     instances: [{ processInstanceId: 'runner-old', kind: 'runner', closeObservedAt: 1, exitCode: 0, signal: null }] });
@@ -264,6 +347,17 @@ test('native parallel workflow reserves one slot per child until workflow termin
   h.proofs.set('workflow-1', { version: 1, kind: 'workflow', runId: 'workflow-1',
     state: 'observed', dispatchClosed: true, observedAt: 1, children: [] });
   assert.notEqual((await h.call('call-3', task('first')))?.block, true);
+});
+
+test('a completed foreground workflow releases its run identity before a later terminal notification', async (t) => {
+  const h = await makeHarness(t);
+  const child = { agent: 'first', task: 'Inspect a.' };
+  assert.equal(await h.call('fg', { workflow: 'parallel', async: false, args: { tasks: [child] } }), undefined);
+  assert.equal(await h.nested('fg', 'fg/1', { workflowRunId: 'fg-run', key: 'task-1', ...child }), undefined);
+  await h.result('fg', { mode: 'workflow', runId: 'fg-run', results: [{ exitCode: 0 }] });
+  completed(h, 'fg-run');
+  assert.equal((await h.call('stop-finished', { action: 'stop', id: 'fg-run' }))?.block, true);
+  assert.equal(await h.call('next', task('first')), undefined);
 });
 
 test('only the matching nested launches of an admitted native parallel workflow are permitted', async (t) => {
@@ -288,6 +382,7 @@ test('truncated status snapshots block new launches instead of guessing', async 
     const result = await h.call(`truncated-${field}`, task('first'));
     assert.equal(result?.block, true);
     assert.match(result.reason, /cannot be reconciled safely/i);
+    assert.ok(result.reason.includes(`${field}=${value}`));
   }
 });
 
@@ -299,12 +394,13 @@ test('a parallel workflow cannot exceed the native snapshot child limit', async 
   assert.match(result.reason, /snapshot.*limit/i);
 });
 
-test('native parallel workflow cannot fan out twice on an unverified model route', async (t) => {
+test('the first native workflow can launch two tasks on the same model route', async (t) => {
   const h = await makeHarness(t, { maxSubagents: 2 });
   const parallel = { workflow: 'parallel', async: true, args: { tasks: [
     { agent: 'first', task: 'Inspect a.' }, { agent: 'first', task: 'Inspect b.' },
   ] } };
-  assert.equal((await h.call('parallel-1', parallel))?.block, true);
+  assert.equal(await h.call('parallel-1', parallel), undefined);
+  assert.match((await h.call('extra', task('first'))).reason, /concurrency limit/);
 });
 
 test('disabled delegation and partial registration failure both block the native tool', async (t) => {

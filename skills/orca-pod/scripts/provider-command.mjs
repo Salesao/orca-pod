@@ -19,7 +19,12 @@ export function tomlString(value) {
 
 export function roleGuard(role, policy, helperNames = {}) {
   const delegation = !policy ? '' : policy.useSubagents
-    ? ` Delegate only to these selected specializations: ${policy.helpers.map(({ name }) => Object.hasOwn(helperNames, name) ? helperNames[name] : name).join(', ')}. Honor the resolved models, effort and concurrency; children are leaves. If a helper cannot run under policy, do its work inline.`
+    ? ` Delegate only to these selected specializations: ${policy.helpers.map(({ name }) => Object.hasOwn(helperNames, name) ? helperNames[name] : name).join(', ')}.`
+      + ` Launch independent assignments in parallel with the native delegation tool. Keep at most ${policy.maxSubagents} children active across calls.`
+      + (role === 'implementer' && policy.helpers.some(({ name }) => name === 'worker')
+        ? ' Assign independent implementation TODOs to workers with disjoint write scopes. Integrate their changes after the wave.' : '')
+      + ' Wait for every child before integration or handoff. Honor the resolved models and effort; children are leaves.'
+      + ' If a helper cannot run under policy, do its work inline.'
     : ' Delegation is disabled. Perform all role work inline. Do not spawn, schedule or delegate through native tools, other CLIs, skills, extensions or MCP.';
   return `You are the ${ROLE_LABELS[role]} role of the orca-pod Orca pipeline, not the Coordinator. `
     + 'The Coordinator has already prepared the config, the sandbox and the role terminals: do not run orca terminal create, launch-provider.mjs or test-sandbox.mjs, '
@@ -32,7 +37,8 @@ export function providerCommand(settings, {
 }) {
   policy ??= resolveRolePolicy({ resolvedRoles: { [role]: settings }, reviewMode, maxSubagents }, role);
   capabilities ??= getProviderCapabilities(settings.provider);
-  const guard = roleGuard(role, policy, native.helperNames);
+  const guard = roleGuard(role, policy, native.helperNames)
+    + ` On assignment read ${path.join(skillDir, 'references', 'role-entry.md')} first.`;
   const model = ['--model', settings.model];
   const effort = settings.thinking === 'default' ? [] : ['--thinking', settings.thinking];
   const qoderEffort = settings.provider === 'qoder' && settings.thinking !== 'default' ? ['--reasoning-effort', settings.thinking] : [];

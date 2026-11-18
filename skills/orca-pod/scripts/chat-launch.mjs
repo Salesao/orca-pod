@@ -11,7 +11,7 @@ export function launchChat(settings, { worktree, environment, retryLaunch, skill
     'SURFACE: chat',
     `LANGUAGE: ${settings.language}`,
     guard,
-    `Read ${path.join(skillDir, 'SKILL.md')} and its chat sections.`,
+    `On assignment read ${path.join(skillDir, 'references', 'role-entry.md')} first, then the linked role and chat instructions.`,
     `Resolved settings (do not re-read YAML): ${JSON.stringify(settings)}`,
     'This is bootstrap, not the task. Wait for the first complete assignment with role addresses and resolved LANGUAGE. Do not start planning, implementation, or send handoffs yet.',
     'Use the exact orca_session_id: mailbox assigned by Orca for replies. Shell exports are not shared with other sessions.',

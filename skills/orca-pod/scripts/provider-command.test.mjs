@@ -40,6 +40,15 @@ test("Codex Planner preserves effort in Plan and starts without a fake Plan or q
   assert.ok(!providerCommand(role("codex"), options).some((arg) => arg.startsWith("plan_mode_reasoning_effort")));
 });
 
+test("each provider tells an enabled role to launch independent tasks in parallel within its configured limit", () => {
+  for (const provider of ["pi", "codex", "claude-code", "qoder", "omp"]) {
+    const capabilities = getProviderCapabilities(provider, { help: evidence[provider] });
+    const args = providerCommand(role(provider), { ...options, maxSubagents: 3, capabilities });
+    assert.match(args.join(" "), /independent assignments in parallel.*at most 3 children active across calls/, provider);
+    assert.match(args.join(" "), /implementation TODOs to workers with disjoint write scopes/, provider);
+  }
+});
+
 test("full access and disabled delegation stay independent for all five providers", () => {
   for (const [provider, accessFlag, filter] of [
     ["codex", "--dangerously-bypass-approvals-and-sandbox", "--disable"],

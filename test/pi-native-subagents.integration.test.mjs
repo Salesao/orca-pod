@@ -52,7 +52,8 @@ async function scenario(mode) {
         const messages = request.messages ?? [];
         const second = messages.some((message) => message.role === 'user' && JSON.stringify(message.content).includes('SECOND_PROBE'));
         const third = messages.some((message) => message.role === 'user' && JSON.stringify(message.content).includes('THIRD_PROBE'));
-        requests.push({ parent, at: Date.now(), parameters: subagent?.function.parameters });
+        requests.push({ parent, at: Date.now(), parameters: subagent?.function.parameters,
+          helperReady: messages.some((message) => JSON.stringify(message.content).includes('Orca Pod helper preflight: ready')) });
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
         const chunk = (delta, finishReason = null) => res.write(`data: ${JSON.stringify({
           id: 'chatcmpl-test', object: 'chat.completion.chunk', created: 1, model: 'fake-model',
@@ -66,7 +67,7 @@ async function scenario(mode) {
           let input;
           if (mode === 'foreground') {
             input = { agent: 'orca-pod-scout', task: 'Return CHILD_DONE.', async: false };
-          } else if (mode === 'flow' && launchIndex === 2) {
+          } else if (mode === 'flow' && launchIndex === 1) {
             input = { workflow: 'parallel', args: { tasks: [
               { agent: 'orca-pod-scout', task: 'Return CHILD_DONE.' },
               { agent: 'orca-pod-reviewer', task: 'Return CHILD_DONE.' },
@@ -123,9 +124,12 @@ async function scenario(mode) {
     const env = { HOME: root, USERPROFILE: root, PATH: process.env.PATH, TMPDIR: root,
       PI_CODING_AGENT_DIR: agentDir, ORCA_POD_PI_POLICY: JSON.stringify(policy), PI_SUBAGENT_MAX_DEPTH: '1',
       NO_COLOR: '1', DO_NOT_TRACK: '1', TERM: 'dumb' };
+    const guard = path.join(repo, 'skills/orca-pod/pi-extension/role-policy.js');
+    // Managed launches may register their explicit guard before the ambient adapter binds its session.
+    const extensions = mode === 'foreground' ? [guard, bundle] : [bundle, guard];
     proc = spawn(pi, ['--mode', 'rpc', '--no-mcp', '--no-extensions', '--no-skills', '--no-prompt-templates',
-      '--no-themes', '--no-context-files', '-e', bundle, '-e', path.join(repo, 'test/fixtures/pi-native-observer.mjs'),
-      '-e', path.join(repo, 'skills/orca-pod/pi-extension/role-policy.js'), '--provider', 'fake', '--model', 'fake-model'],
+      '--no-themes', '--no-context-files', ...extensions.flatMap((extension) => ['-e', extension]),
+      '-e', path.join(repo, 'test/fixtures/pi-native-observer.mjs'), '--provider', 'fake', '--model', 'fake-model'],
     { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'] });
     const checkDone = () => {
       const first = results.get('call_1');
@@ -133,7 +137,7 @@ async function scenario(mode) {
       if (mode === 'foreground' && first && parentContinuedAt) resolveDone();
       if (mode === 'limit' && first?.runId && results.get('call_2')?.isError && notifications >= 1 && terminal.has(first.runId)) resolveDone();
       const third = results.get('call_3');
-      if (mode === 'flow' && first?.runId && third?.runId && notifications >= 3 && terminal.has(first.runId) && terminal.has(third.runId)) resolveDone();
+      if (mode === 'flow' && first?.runId && third?.runId && notifications >= 3 && terminal.has(results.get('call_2')?.runId) && terminal.has(third.runId)) resolveDone();
     };
     let out = '';
     proc.stdout.on('data', (part) => {
@@ -152,7 +156,8 @@ async function scenario(mode) {
           const foregroundComplete = mode === 'foreground' && !event.isError && rows?.length === 1 &&
             rows[0]?.exitCode === 0 && !rows[0].detached;
           results.set(event.toolCallId, { isError: event.isError, runId: event.result?.details?.runId,
-            mode: event.result?.details?.mode, message: text(event.result), foregroundComplete });
+            mode: event.result?.details?.mode, message: text(event.result), foregroundComplete,
+            routes: event.result?.details?.orcaPodHelperRoutes });
           if (event.isError && mode === 'flow') { errors.push(text(event.result)); resolveDone(); }
         }
         if (event.type === 'message_end' && event.message?.role === 'assistant' && text(event.message).includes('PARENT_CONTINUES')) {
@@ -216,6 +221,7 @@ async function scenario(mode) {
 test('real Pi runs native background and parallel helpers while the parent continues', { skip, timeout: 75000 }, async () => {
   const run = await scenario('flow');
   assert.equal(run.results.size, 3);
+  assert.equal(run.results.get('call_1')?.mode, 'workflow');
   for (const result of run.results.values()) assert.equal(result.isError, false);
   assert.equal(run.notifications, 3);
   assert.ok(run.parentContinuedAt && run.childCompletedAt && run.parentContinuedAt < run.childCompletedAt);
@@ -232,6 +238,7 @@ test('real Pi blocks an unselected helper', { skip, timeout: 75000 }, async () =
 
 test('real Pi advertises the role schema and completes the first foreground call', { skip, timeout: 75000 }, async () => {
   const run = await scenario('foreground');
+  assert.equal(run.requests[0].helperReady, true, 'live Pi adapter preflight reached the role on the first model request');
   const schema = run.requests[0].parameters;
   assert.deepEqual(Object.keys(schema.properties).sort(),
     ['action', 'agent', 'args', 'async', 'id', 'model', 'options', 'task', 'workflow']);
@@ -241,6 +248,9 @@ test('real Pi advertises the role schema and completes the first foreground call
   const result = run.results.get('call_1');
   assert.equal(result.isError, false, result.message);
   assert.match(result.message, /CHILD_DONE/);
+  assert.deepEqual(result.routes[0].requested, { model: 'fake/fake-model', thinking: 'off' });
+  assert.deepEqual(result.routes[0].observed, { model: 'fake/fake-model', thinking: 'off' });
+  assert.equal(result.routes[0].observedFrom, 'child_session');
   assert.equal(run.requests.filter((request) => !request.parent).length, 1);
 });
 
