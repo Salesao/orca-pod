@@ -3,7 +3,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { configLocation, projectLocation } from "./config-location.mjs";
 import { displayPath, envFor, findExecutable } from "./find-executable.mjs";
@@ -12,10 +12,11 @@ import { readCodexCatalog } from "./codex-models.mjs";
 import { providerCommand } from "./provider-command.mjs";
 import { getProviderCapabilities, MODEL_CATALOG_ARGS, parseModelCatalog, PROVIDER_EXECUTABLES } from "./provider-capabilities.mjs";
 import { resolveRolePolicy } from "./role-policy.mjs";
+import { roleLaunchFingerprint, verifyLauncherTerminal } from './role-terminal.mjs';
 import { launchChat } from './chat-launch.mjs';
 import { prepareNativeHelpers } from "./native-helpers.mjs";
 
-const USAGE = "usage: launch-provider.mjs --role planner|implementer|reviewer|chief_reviewer [--profile name] [--resolve | --validate] [--worktree selector] [--environment selector] [--retry-launch id] | --roles [--profile name] | --profiles";
+const USAGE = "usage: launch-provider.mjs --role planner|implementer|reviewer|chief_reviewer [--profile name] [--resolve | --validate] [--worktree selector] [--environment selector] [--retry-launch id] | --roles [--resolve] [--profile name] | --profiles";
 
 function fail(message) {
   throw new PipelineConfigError(message);
@@ -57,28 +58,29 @@ function isTrackedByGit(file) {
   return !result.error && result.status === 0;
 }
 
-function resolveRole(role, requestedProfileName = null, coordinator = false) {
+function resolveRole(role, requestedProfileName = null, coordinator = false, pipeline = loadPipeline()) {
   if (!ROLE_KEYS.includes(role)) fail(`role must be one of: ${ROLE_KEYS.join(", ")}`);
-  const { config, configPath } = loadPipeline();
+  const { config, configPath } = pipeline;
   const resolved = resolveProfile(config, requestedProfileName);
   const { resolvedRoles, profile, reviewMode, maxSubagents, fullAccess, language } = resolved;
   if (!resolvedRoles[role]) {
     fail(`role ${role} is not configured in profile ${JSON.stringify(profile)}; reviewer and chief_reviewer are optional — add them with orca-pod-setup`);
   }
   const settings = resolvedRoles[role];
+  const policy = resolveRolePolicy(resolved, role);
   return { ...settings, configPath, profile, role, reviewMode, maxSubagents, fullAccess: coordinator || fullAccess, language,
-    policy: resolveRolePolicy(resolved, role), requiredPlannerMode: role === 'planner' && settings.provider === 'codex' && settings.surface === 'terminal' ? 'plan' : null,
+    policy, settingsFingerprint: roleLaunchFingerprint(settings, policy, fullAccess), requiredPlannerMode: role === 'planner' && settings.provider === 'codex' && settings.surface === 'terminal' ? 'plan' : null,
     runtimeVerified: false };
 }
 
-function listRoles(requestedProfileName = null, coordinator = false) {
-  const { config, configPath } = loadPipeline();
+function listRoles(requestedProfileName = null, coordinator = false, pipeline = loadPipeline()) {
+  const { config, configPath } = pipeline;
   const resolved = resolveProfile(config, requestedProfileName);
   const { resolvedRoles, profile, reviewMode, maxSubagents, fullAccess, language } = resolved;
   return {
     configPath, profile, language,
     roles: ROLE_KEYS.filter((name) => resolvedRoles[name]),
-    reviewMode, maxSubagents, fullAccess: coordinator || fullAccess,
+    reviewMode, maxSubagents, fullAccess: coordinator || fullAccess, accessNote: 'fullAccess is requested; use --roles --resolve for effectiveAccess per role',
     settings: Object.fromEntries(Object.entries(resolvedRoles).map(([role, settings]) => [role, {
       ...settings, policy: resolveRolePolicy(resolved, role), requiredPlannerMode: role === 'planner' && settings.provider === 'codex' && settings.surface === 'terminal' ? 'plan' : null,
     }])),
@@ -109,7 +111,7 @@ function optionsFrom(argv) {
     return options;
   }
   if (options.listRoles) {
-    if (options.role || options.resolve || options.shouldValidate || options.terminalHandle || options.worktree || options.environment || options.retryLaunch) fail("--roles cannot be combined with --role, --resolve or --validate");
+    if (options.role || options.shouldValidate || options.terminalHandle || options.worktree || options.environment || options.retryLaunch) fail("--roles cannot be combined with --role or --validate");
     return options;
   }
   if (!options.role) fail(USAGE);
@@ -117,31 +119,25 @@ function optionsFrom(argv) {
   return options;
 }
 
-try {
-  const options = optionsFrom(process.argv.slice(2));
-  if (options.listProfiles) {
-    const { config, configPath } = loadPipeline();
-    console.log(JSON.stringify({ configPath, configTracked: isTrackedByGit(configPath), ...listProfiles(config) }));
-    process.exit(0);
-  }
-  if (options.listRoles) {
-    console.log(JSON.stringify(listRoles(options.profileName, options.coordinator)));
-    process.exit(0);
-  }
-  const settings = resolveRole(options.role, options.profileName, options.coordinator);
+async function processRole(settings, options, probeCache = new Map()) {
+  const helpersRequested = settings.policy.useSubagents;
+  settings.helperPreflight = { requested: helpersRequested, configuration: helpersRequested ? 'unchecked' : 'disabled',
+    adapter: null, runtime: 'unverified' };
   if (settings.surface === 'chat') {
     if (options.terminalHandle) fail('A chat role cannot use --terminal');
     settings.effectiveAccess = 'host-default';
     settings.delegationEnforcement = 'instruction-only';
     settings.warnings = ['Chat permissions are controlled by Orca; terminal YOLO flags and native helper configuration are not applied. Helpers run only when native chat tools can honor the policy, otherwise inline.'];
-    if (options.resolve || options.shouldValidate) console.log(JSON.stringify(settings));
-    else process.exitCode = launchChat(settings, { ...options, skillDir: SKILL_DIR });
-    process.exit(process.exitCode ?? 0);
+    if (options.resolve || options.shouldValidate) return settings;
+    process.exitCode = launchChat(settings, { ...options, skillDir: SKILL_DIR });
+    return;
   }
   if (options.worktree || options.environment || options.retryLaunch) fail('--worktree, --environment and --retry-launch apply only to chat roles; launch terminal roles in their prepared terminal');
   if (settings.requiredPlannerMode && options.coordinator && !options.resolve && !options.shouldValidate && !options.terminalHandle) {
     fail('A Coordinator-launched Codex Planner requires --terminal <handle> for its session-local save hook');
   }
+  const recordStarted = options.terminalHandle && !options.resolve && !options.shouldValidate
+    ? verifyLauncherTerminal(settings, options.terminalHandle) : null;
   settings.warnings = [];
   const command = PROVIDER_EXECUTABLES[settings.provider];
   const executable = options.shouldValidate ? null : findExecutable(command) ?? (settings.provider === 'qoder' ? findExecutable('qoder') : null);
@@ -149,8 +145,12 @@ try {
   if (executable && !executable.onPath) settings.warnings.push(`${command} is not on PATH; using ${displayPath(executable.file)}`);
   const env = envFor(executable);
   const boundedProbe = (args) => {
-    const probe = spawnSync(executable.file, args, { env, encoding: 'utf8', timeout: 4000, maxBuffer: 4 * 1024 * 1024 });
-    return probe.status === 0 ? probe.stdout : '';
+    const key = JSON.stringify([executable.file, ...args]);
+    if (!probeCache.has(key)) {
+      const probe = spawnSync(executable.file, args, { env, encoding: 'utf8', timeout: 4000, maxBuffer: 4 * 1024 * 1024 });
+      probeCache.set(key, probe.status === 0 ? probe.stdout : '');
+    }
+    return probeCache.get(key);
   };
   const probes = executable && ['pi', 'omp', 'qoder'].includes(settings.provider);
   const help = probes ? boundedProbe(['--help']) : '';
@@ -188,6 +188,15 @@ try {
     }) : { native: {}, effective: settings.policy, env, warnings: [] };
     settings.policy = launch.effective;
     settings.warnings.push(...launch.warnings);
+    if (executable && helpersRequested) {
+      settings.helperPreflight.configuration = launch.effective.useSubagents ? 'configured' : 'unavailable';
+      if (settings.provider === 'pi' && launch.effective.useSubagents) {
+        const listed = boundedProbe(['list']);
+        if (/(?:^|[/:\s])pi-subagents(?:[@/\s]|$)/m.test(listed)) settings.helperPreflight.adapter = 'pi-subagents listed';
+        else settings.warnings.push('Pi: pi-subagents installation unverified by pi list; verify native helper readiness in the launched session before dispatch');
+      }
+      if (launch.effective.useSubagents) settings.warnings.push('Native helper availability in the running session still requires pre-dispatch verification');
+    }
     if (settings.provider === 'pi' && executable) {
       const lensFlags = ['--no-lens-context', '--no-autoformat', '--no-autofix', '--no-tests', '--no-knip', '--no-jscpd', '--no-madge',
         '--no-gitleaks', '--no-govulncheck', '--no-dead-code', '--no-complexity', '--no-opengrep'];
@@ -195,19 +204,44 @@ try {
       if (!launch.native.lensFlags.includes('--no-lens-context')) settings.warnings.push('Pi: session flags for Lens automatic diagnostics were not detected');
     }
     if (options.resolve || options.shouldValidate) {
-      console.log(JSON.stringify(settings));
+      return settings;
     } else {
       const [, ...args] = providerCommand(settings, { ...settings, skillDir: SKILL_DIR, capabilities, native: launch.native, terminalHandle: options.terminalHandle });
       for (const warning of settings.warnings) console.error(`PIPELINE CONFIG WARNING: ${warning}`);
-      const roleEnv = settings.requiredPlannerMode && options.terminalHandle
-        ? { ...launch.env, ORCA_POD_PLANNER_TERMINAL: options.terminalHandle }
-        : launch.env;
-      const result = spawnSync(executable.file, args, { stdio: 'inherit', env: roleEnv });
-      if (result.error) throw result.error;
-      process.exitCode = result.status ?? 1;
+      const roleEnv = { ...launch.env,
+        ...(options.terminalHandle ? { ORCA_POD_RUNTIME_PARENT: String(process.pid), ORCA_ENVIRONMENT: 'local' } : {}),
+        ...(settings.requiredPlannerMode && options.terminalHandle ? { ORCA_POD_PLANNER_TERMINAL: options.terminalHandle } : {}) };
+      if (options.terminalHandle) delete roleEnv.ORCA_PAIRING_CODE;
+      const child = spawn(executable.file, args, { stdio: 'inherit', env: roleEnv });
+      process.exitCode = await new Promise((resolve, reject) => {
+        child.once('error', reject);
+        if (recordStarted) child.once('spawn', () => recordStarted(child.pid));
+        child.once('exit', code => resolve(code ?? 1));
+      });
     }
   } finally {
     if (temporary) rmSync(temporary, { recursive: true, force: true });
+  }
+}
+
+try {
+  const options = optionsFrom(process.argv.slice(2));
+  if (options.listProfiles) {
+    const { config, configPath } = loadPipeline();
+    console.log(JSON.stringify({ configPath, configTracked: isTrackedByGit(configPath), ...listProfiles(config) }));
+  } else if (options.listRoles) {
+    const pipeline = loadPipeline();
+    const listing = listRoles(options.profileName, options.coordinator, pipeline);
+    if (options.resolve) {
+      const probeCache = new Map();
+      for (const role of listing.roles) {
+        listing.settings[role] = await processRole(resolveRole(role, listing.profile, options.coordinator, pipeline), options, probeCache);
+      }
+    }
+    console.log(JSON.stringify(listing));
+  } else {
+    const settings = await processRole(resolveRole(options.role, options.profileName, options.coordinator), options);
+    if (settings) console.log(JSON.stringify(settings));
   }
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);

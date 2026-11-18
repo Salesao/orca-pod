@@ -11,7 +11,7 @@ const TEMPLATE_PATH = fileURLToPath(new URL("../assets/orca-pod.yaml", import.me
 const CODEX_FIXTURE_PATH = fileURLToPath(new URL("./fixtures/codex-debug-models.json", import.meta.url));
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function runLauncher(templateYaml, { role = "implementer", shouldResolve = true, shouldValidate = false, hasProviderExecutables = true, profileName = null, shouldListRoles = false, shouldListProfiles = false, isLegacyLocation = false, env = {}, codexCache = null, coordinator = false } = {}) {
+function runLauncher(templateYaml, { role = "implementer", shouldResolve = true, shouldValidate = false, hasProviderExecutables = true, profileName = null, shouldListRoles = false, resolveRoles = false, shouldListProfiles = false, isLegacyLocation = false, env = {}, codexCache = null, coordinator = false } = {}) {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "orca-launcher-test-"));
   try {
     const executableDirectory = path.join(fixtureRoot, "bin");
@@ -62,7 +62,7 @@ function runLauncher(templateYaml, { role = "implementer", shouldResolve = true,
     mkdirSync(codexHome);
     if (codexCache !== null) writeFileSync(path.join(codexHome, "models_cache.json"), codexCache);
     const modeArguments = shouldListProfiles ? ["--profiles"]
-      : shouldListRoles ? ["--roles"]
+      : shouldListRoles ? ["--roles", ...(resolveRoles ? ["--resolve"] : [])]
         : ["--role", role, ...(shouldResolve ? ["--resolve"] : []), ...(shouldValidate ? ["--validate"] : [])];
     return spawnSync(process.execPath, [LAUNCHER_PATH, ...modeArguments, ...(coordinator ? ["--coordinator"] : []), ...(profileName === null ? [] : ["--profile", profileName])], {
       cwd: fixtureRoot,
@@ -830,4 +830,19 @@ test("Coordinator launches request YOLO independently of profile access and dele
   assert.ok(args.includes("--dangerously-skip-permissions"));
   assert.equal(args[args.indexOf("--disallowed-tools") + 1], "Agent");
   assert.doesNotMatch(result.stdout, /--agents/);
+});
+
+test("resolved role list probes access and distinguishes configured helpers from live sessions", () => {
+  const options = { shouldListRoles: true, resolveRoles: true, coordinator: true };
+  const pi = runLauncher(COMPLETE_YAML, options);
+  assert.equal(pi.status, 0, pi.stderr);
+  const listed = JSON.parse(pi.stdout);
+  assert.equal(listed.fullAccess, true);
+  assert.equal(listed.settings.implementer.effectiveAccess, 'host-default');
+  const qoder = runLauncher(QODER_YAML, options);
+  assert.equal(qoder.status, 0, qoder.stderr);
+  assert.equal(JSON.parse(qoder.stdout).settings.implementer.effectiveAccess, 'yolo');
+  const role = JSON.parse(pi.stdout).settings.planner;
+  assert.equal(role.helperPreflight.runtime, 'unverified');
+  assert.equal(role.runtimeVerified, false);
 });
