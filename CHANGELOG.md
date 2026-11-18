@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.1 - 2026-11-18
+
+### Fixed
+
+- Pi roles now show the model the selected helper names and permitted `subagent` fields before the first call.
+  A foreground call can launch a selected helper with just `agent`, `task` and `async: false`.
+- If a call supplies a forbidden field such as `worktree` or `output`, Orca Pod blocks it before launch
+  and names the field even when its value is `false`.
+
 ## 1.1.0 - 2026-11-17
 
 ### Added
