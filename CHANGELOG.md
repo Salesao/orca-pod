@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.2.0 - 2026-11-19
+
+### Added
+
+- A Coordinator can replace a failed role terminal within the same run. Each launch records the workspace,
+  role, terminal handle and process incarnation. The replacement can resume from the previous review snapshot.
+- The terminal reader retains up to 8 KiB of recent readable output for diagnosis after exit. It reads
+  Qoder's rendered screen and accepts `--lines` as an alias for `--limit`.
+- A user can authorize another bounded review cycle for specific open findings after `BLOCKED`.
+  `EVIDENCE_GAP` identifies which TODOs need external evidence and which independent work can continue.
+
+### Fixed
+
+- Independent Pi helpers can start together on a new model route with the first parallel call.
+  Pi checks helper availability before dispatch, explains admission failures, and reports the requested
+  model and effort alongside values observed in the child session when available.
+- Roles receive instructions to run independent assignments concurrently within their configured limit.
+  Reports distinguish the total number of children launched from peak concurrency.
+- `FINAL_READY` checks the Implementer's reply address before delivery. Review handoffs link each executed
+  check to its exit status, saved output and snapshot. Roles can read new review reports while the memory
+  index is frozen.
+
 ## 1.1.1 - 2026-11-18
 
 ### Fixed
