@@ -184,6 +184,197 @@ function reviewModeOf(dir, profile) {
   try { return JSON.parse(result.stdout).reviewMode; } catch { return null; }
 }
 
+function reportRecord(planDir, file) {
+  const [, series, suffix] = /^(.+)-attempt(\d+)\.md$/.exec(file);
+  const text = readFileSync(path.join(planDir, file), 'utf8');
+  const header = text.match(/^(?:-\s+)?planVersion:.*$/m)?.[0].replace(/^-\s+/, '') || '';
+  const fields = Object.fromEntries(header.split(';').map((part) => part.trim().split(/:\s*(.*)/s, 2)));
+  const modern = 'cycle' in fields || 'artifact' in fields;
+  const budget = /^(\d+)\/(\d+)$/.exec(fields.attempt);
+  return {
+    file, series, text, verdict: reportVerdict(text), modern, fields, number: Number(suffix),
+    cycle: modern ? Number(fields.cycle) : 1,
+    attempt: modern ? Number(budget?.[1]) : Number(suffix),
+    limit: modern ? Number(budget?.[2]) : null,
+  };
+}
+
+function tableRows(text, heading) {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === '## ' + heading);
+  if (start < 0) return [];
+  const end = lines.findIndex((line, i) => i > start && line.startsWith('## '));
+  const rows = lines.slice(start + 1, end === -1 ? undefined : end).filter((line) => line.trim().startsWith('|'))
+    .map((line) => line.trim().replace(/^\||\|$/g, '').split(/(?<!\\)\|/)
+      .map((cell) => cell.trim().replace(/^`|`$/g, '').replace(/\\\|/g, '|')));
+  const [columns = [], ...values] = rows;
+  return values.filter((cells) => !/^:?-+:?$/.test(cells[0]))
+    .map((cells) => Object.fromEntries(columns.map((column, i) => [column, cells[i]])));
+}
+
+function registryRows(text) {
+  return new Map(tableRows(text, 'Registry').filter((row) => /^[RCS]\d+$/.test(row.id)).map((row) => [row.id, row]));
+}
+
+function isBlocking(row) {
+  return row && ['BLOCKER', 'MAJOR'].includes(row.category)
+    && ['OPEN', 'PARTIAL', 'NOT_FIXED'].includes(row.final_status ?? row.status);
+}
+
+function survivingId(registry, id) {
+  const seen = new Set();
+  while (registry.has(id) && !seen.has(id)) {
+    seen.add(id);
+    const row = registry.get(id);
+    const links = [row.escalated_to, row.superseded_by].filter((link) => link && link !== '—');
+    if (!links.length) return id;
+    if (links.length !== 1) break;
+    id = links[0];
+  }
+  return null;
+}
+
+function authorizedScope(report, previous, planDir, stage) {
+  const line = report.text.match(/^USER_AUTHORIZED_CONTINUATION \[([^\]\n]+)\]\s*$/m);
+  if (!line) return null;
+  const fields = Object.fromEntries(line[1].split(/,\s*(?=[a-z_]+=)/).map((part) => part.trim().split(/=(.*)/s, 2)));
+  const previousRef = report.text.match(/^previous_report:[ \t]*(.+)$/m)?.[1].trim();
+  const decision = report.text.match(/^decision_ref:[ \t]*(\S.*)$/m)?.[1];
+  if (fields.plan !== path.basename(planDir) || fields.stage !== stage || fields.cycle !== String(report.cycle)
+    || fields.authorized_by !== 'user' || !previousRef || !path.isAbsolute(previousRef) || !existsSync(previousRef)
+    || realpathSync(previousRef) !== realpathSync(path.join(planDir, previous.file)) || !decision) return null;
+  const prior = registryRows(previous.text);
+  const ids = fields.scope?.split(/[\s,]+/).map((id) => survivingId(prior, id)) ?? [];
+  return ids.length && ids.every((id) => isBlocking(prior.get(id))) ? new Set(ids) : null;
+}
+
+// In older single-reviewer runs final-attempt1 could accompany the last stage's approval
+// (e.g. all-attempt2). Each later final fix still consumes the shared attempt budget.
+function reviewStream(stageReports, finalReports) {
+  const byNumber = (a, b) => a.number - b.number;
+  const lastLegacyStage = stageReports.filter((r) => !r.modern).sort(byNumber).at(-1);
+  const firstLegacyFinal = finalReports.filter((r) => !r.modern).sort(byNumber)[0];
+  const offset = firstLegacyFinal?.number === 1 && lastLegacyStage?.verdict === 'APPROVED'
+    ? lastLegacyStage.number - 1 : 0;
+  return [...stageReports, ...finalReports.map((report) => report.modern ? report : {
+    ...report, number: report.number + offset, attempt: report.attempt + offset,
+  })].sort(byNumber);
+}
+
+function savedFile(planDir, reference) {
+  return reference && statSync(path.resolve(planDir, reference), { throwIfNoEntry: false })?.isFile();
+}
+
+function validSnapshot(planDir, reference) {
+  const baseline = /^HEAD=([a-f\d]{40}|[a-f\d]{64})$/i.exec(reference);
+  if (!baseline) return savedFile(planDir, reference);
+  const dir = path.resolve(planDir, '../../..');
+  return git(dir, ['rev-parse', 'HEAD']) === baseline[1].toLowerCase() && !git(dir, ['status', '--porcelain']);
+}
+
+function streamErrors(reports, planDir, stage, maximum, finalStage) {
+  const errors = [];
+  let previous;
+  let scope;
+  for (const report of reports) {
+    const { cycle, attempt, number, verdict } = report;
+    const problem = (detail) => errors.push(report.file + ': ' + detail);
+    const limit = report.limit ?? maximum;
+    if (report.modern && (report.fields.planVersion !== path.basename(planDir) || report.fields.stage !== stage
+      || report.fields.artifact !== String(number))) problem('plan, stage or artifact disagrees with its report path');
+    if (!(attempt >= 1 && attempt <= limit && limit <= maximum) || (cycle === 1 && limit !== maximum))
+      problem('attempt or budget outside the per-cycle limit ' + maximum);
+    if (attempt === limit && verdict === 'CHANGES_REQUESTED') problem('attempt budget exhausted, expected BLOCKED');
+    const companion = report.series === 'final' && previous?.series === stage && previous.number === number;
+    if (companion) {
+      if (previous.verdict !== 'APPROVED' || previous.cycle !== cycle || previous.attempt !== attempt
+        || (previous.limit ?? maximum) !== limit) problem('last-stage and final reports disagree on the shared review');
+    } else {
+      if (number !== (previous?.number ?? 0) + 1) problem('artifact numbers must be consecutive');
+      if (!previous) {
+        if (cycle !== 1 || attempt !== 1) problem('first review must be cycle 1, attempt 1');
+      } else if (previous.cycle !== cycle) {
+        scope = authorizedScope(report, previous, planDir, stage);
+        if (cycle !== previous.cycle + 1 || attempt !== 1 || previous.verdict !== 'BLOCKED' || !scope)
+          problem('new cycle requires prior BLOCKED, user authorization for open ids and attempt 1');
+      } else if (previous.verdict !== 'CHANGES_REQUESTED' || attempt !== previous.attempt + 1
+        || limit !== (previous.limit ?? maximum)) {
+        problem('expected the next attempt after CHANGES_REQUESTED in the same cycle');
+      }
+    }
+    if (report.modern) {
+      let verifiedTests = false;
+      for (const check of tableRows(report.text, 'Checks')) {
+        // Skipped checks report their reason. Executed commands and native checks link saved output.
+        if (check.exit_code === 'skipped' && check['Outcome/reason']) continue;
+        if (!check.command || !/^(?:-?\d+|native:\S+)$/.test(check.exit_code)
+          || !validSnapshot(planDir, check.snapshot) || !savedFile(planDir, check.evidence_ref)) {
+          problem('executed check requires command, exit_code, verified snapshot and a saved evidence_ref file');
+        } else if (/^node\s+--test$/.test(check.command) && check.exit_code === '0') {
+          verifiedTests = true;
+        }
+      }
+      if ((verdict === 'FINAL_APPROVED' || (verdict === 'SELF_VERIFIED' && finalStage)) && !verifiedTests)
+        problem('sandbox final success requires a Checks row with passing node --test evidence');
+      const registry = registryRows(report.text);
+      for (const [id, row] of registry) {
+        const target = registry.get(survivingId(registry, id));
+        const validStatus = ['OPEN', 'CLOSED', 'NOT_FIXED', 'PARTIAL', 'ACCEPTED_RISK', 'WITHDRAWN'].includes(row.final_status);
+        if (!target || !validStatus || row.final_status !== target.final_status)
+          problem('unresolved registry link or inconsistent final_status: ' + id);
+      }
+      if (scope && previous) {
+        const prior = registryRows(previous.text);
+        const allowed = new Set([...scope].map((id) => survivingId(prior, id)));
+        for (const [id, row] of prior) {
+          if (!registry.has(id)) problem('missing prior registry id ' + id);
+          else if (isBlocking(row) && !allowed.has(survivingId(prior, id))
+            && !isBlocking(registry.get(survivingId(registry, id)))) problem('out-of-scope blocker changed: ' + id);
+        }
+      }
+      if (['APPROVED', 'FINAL_APPROVED', 'SELF_VERIFIED', 'COMPLETED_UNVERIFIED'].includes(verdict)
+        && [...registry.values()].some(isBlocking)) problem('approval with an open blocker');
+    }
+    previous = report;
+  }
+  return errors;
+}
+
+function checkReviewHistory(planDir, files, mode) {
+  const reports = files.filter((file) => /-attempt\d+\.md$/.test(file)).map((file) => reportRecord(planDir, file));
+  const soleReviewer = mode === 'reviewer' || mode === 'chief';
+  const stages = new Map();
+  const finalReports = [];
+  for (const report of reports) {
+    if (report.series === 'final') {
+      if (soleReviewer) finalReports.push(report);
+      continue;
+    }
+    if (report.series === 'chief' && mode && mode !== 'full') continue;
+    if ((mode === 'self') !== report.series.startsWith('self-check-')) continue;
+    const stage = report.series.replace(/^self-check-/, '');
+    if (!stages.has(stage)) stages.set(stage, []);
+    stages.get(stage).push(report);
+  }
+  // The bundled task has stage "all". Other plans use S1…Sn.
+  const orderedStages = [...stages.keys()].filter((stage) => stage !== 'chief').sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+  const lastStage = orderedStages.at(-1);
+  if (stages.has('chief')) orderedStages.push('chief');
+  let modernHistory = false;
+  for (const stage of orderedStages) {
+    const stream = reviewStream(stages.get(stage), stage === lastStage ? finalReports : []);
+    const limit = stage === 'chief' && !soleReviewer ? 2 : 3;
+    const errors = streamErrors(stream, planDir, stage, limit, stage === lastStage);
+    for (const report of stream) {
+      if (modernHistory && !report.modern) errors.push(report.file + ': missing cycle/artifact metadata after a modern report');
+      if (report.modern) modernHistory = true;
+    }
+    if (stages.has('chief') && stage !== 'chief' && stream.at(-1).verdict !== 'APPROVED')
+      errors.push('Chief review requires an approved ' + stage + ' report');
+    (errors.length ? fail : pass)(stage + ' review attempts per cycle ≤ ' + limit, errors.join('; '));
+  }
+}
+
 function checkReports(dir, profile) {
   const reportsRoot = path.join(dir, '.orca-pod', 'reports');
   const planDir = latestPlanDir(reportsRoot);
@@ -192,17 +383,19 @@ function checkReports(dir, profile) {
   const files = readdirSync(planDir);
   const mode = reviewModeOf(dir, profile);
   (mode ? pass : warn)('review mode', mode || 'could not determine via launch-provider --roles — checking as full');
+  checkReviewHistory(planDir, files, mode);
   const read = (f) => readFileSync(path.join(planDir, f), 'utf8');
   // The verdict comes only from the report template's `Verdict:` label (review-protocol §7); without a label carrying a token the check does not pass.
   const verdictOf = (text) => reportVerdict(text) ?? '';
   const withLabel = (name, text) => name + (reportVerdict(text) === null ? ' — no "Verdict:" line with a single verdict token (review-protocol §7)' : '');
-  const attemptNo = (f) => Number(f.match(/attempt(\d+)/)[1]);
+  const attemptNo = (f) => Number(f.match(/-attempt(\d+)\.md$/)[1]);
+  const byStageAndArtifact = (a, b) => a.replace(/-attempt\d+\.md$/, '').localeCompare(
+    b.replace(/-attempt\d+\.md$/, ''), 'en', { numeric: true }) || attemptNo(a) - attemptNo(b);
 
   if (mode === 'self') {
-    const selfChecks = files.filter((f) => /^self-check-.*-attempt\d+\.md$/.test(f)).sort((a, b) => attemptNo(a) - attemptNo(b));
+    const selfChecks = files.filter((f) => /^self-check-.*-attempt\d+\.md$/.test(f)).sort(byStageAndArtifact);
     if (!selfChecks.length) { fail('self-check reports', 'no self-check-<stage>-attempt<N>.md'); return; }
     pass('self-check reports', selfChecks.join(', '));
-    (selfChecks.length <= 3 ? pass : fail)('self-check attempt limit ≤ 3', String(selfChecks.length));
     const last = read(selfChecks.at(-1));
     (verdictOf(last) === 'SELF_VERIFIED' ? pass : fail)('final: SELF_VERIFIED', withLabel(selfChecks.at(-1), last));
     ((/verifier/i.test(last)) ? pass : warn)('self-check through the verifier subagent', 'without it — inline in the Implementer context');
@@ -212,14 +405,13 @@ function checkReports(dir, profile) {
   }
 
   const reviewer = files.filter((f) => /-attempt\d+\.md$/.test(f) && !/^(chief|final|self-check)-/.test(f))
-    .sort((a, b) => Number(a.match(/attempt(\d+)/)[1]) - Number(b.match(/attempt(\d+)/)[1]));
+    .sort(byStageAndArtifact);
   const finals = files.filter((f) => (mode === 'full' || !mode ? /^chief-attempt\d+\.md$/ : /^final-attempt\d+\.md$/).test(f))
     .sort((a, b) => attemptNo(a) - attemptNo(b));
 
   if (files.some((f) => /^[A-Z]+-\d+-attempt\d+\.md$/.test(f))) fail('batch review', 'per-TODO reports found: ' + files.filter((f) => /^[A-Z]+-\d+-attempt/.test(f)).join(', '));
   if (!reviewer.length) { fail('Reviewer reports', 'no <stage>-attempt<N>.md'); return; }
   pass('Reviewer reports', reviewer.join(', '));
-  (reviewer.length <= 3 ? pass : fail)('review attempt limit ≤ 3', String(reviewer.length));
 
   const first = read(reviewer[0]);
   (verdictOf(first) === 'CHANGES_REQUESTED' ? pass : warn)('attempt 1: CHANGES_REQUESTED', withLabel('expected because of the test defect', first));
@@ -239,7 +431,6 @@ function checkReports(dir, profile) {
   }
   const finalName = mode === 'full' || !mode ? 'chief-attempt<N>.md' : 'final-attempt<N>.md';
   if (!finals.length) { fail('final review', 'no ' + finalName); return; }
-  (finals.length <= 2 ? pass : fail)('final review attempt limit ≤ 2', String(finals.length));
   const finalReport = read(finals.at(-1));
   (verdictOf(finalReport) === 'FINAL_APPROVED' ? pass : fail)('final: FINAL_APPROVED', withLabel(finals.at(-1), finalReport));
 }

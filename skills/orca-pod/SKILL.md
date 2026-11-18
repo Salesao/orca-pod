@@ -12,7 +12,8 @@ mandatory; Reviewer and Chief Reviewer are optional roles (see "Review modes").
 Each role is a separate Orca chat or terminal and can run in Pi, Claude Code, Codex, Qoder or OMP
 according to `orca-pod.yaml`.
 
-**Role, not Coordinator.** If a role launcher started you or the first prompt
+**Role, not Coordinator.** Start with the short [role entry](references/role-entry.md).
+Read the linked sections for the current action. If a role launcher started you or the first prompt
 starts with a `ROLE:` line, you are Planner, Implementer, Reviewer or Chief
 Reviewer. The config, sandbox and terminals are already ready. Do not execute the
 sections "Required project configuration", "Profile selection", "Coordinator skill
@@ -70,9 +71,9 @@ task orchestration or an alternative orchestrator are not used. Direct chat mail
 - Terminal roles are tied to the issued handle, `ptyId`, `incarnationId`, host and workspace.
   Chat roles use the issued `sessionId` as `orca_session_id:<sessionId>`, plus host and workspace.
   Title, `tabId`, active tab and UUID do not replace identity.
-- Do not write pipeline service files (registry, intents, receipts, journals):
-  everything needed is passed in prompts. Exceptions are `.orca-pod/reports/` for
-  review reports and snapshots, and project memory, its derived index and lock as
+- Pass task state in the role contracts. The terminal lifecycle helper owns the
+  run-scoped terminal identities and diagnostics under `.orca-pod/runs/`. Use `.orca-pod/reports/` for
+  review reports, snapshots and evidence, and maintain memory and its index as
   governed by Project memory. Only the authorized writer maintains memory; all
   memory, index and graph writes stop during review.
 - `.orca-pod/` is the pipeline's service folder inside the project. It is not part
@@ -80,7 +81,7 @@ task orchestration or an alternative orchestrator are not used. Direct chat mail
   `ensure-gitignore.sh` adds it to the project's `.gitignore` (only if a
   `.gitignore` already exists; the script does not create the file itself).
 - Do not compute SHA/digest tuples of the plan and changes: the plan version
-  (immutable path), stage and attempt are sufficient identity.
+  (immutable path), stage, cycle, attempt and artifact identify the review.
 - The Coordinator does not change application code. Git commit, push, stash, reset,
   branch and other Git writes require separate permission; reading does not.
   Worktrees are not created.
@@ -330,12 +331,12 @@ Do not claim Pi preflight is ready after an installation error. Existing Pi
 sessions need `/reload` to expose `pi_task` after installation; new role sessions
 load the package at startup. The bootstrap preserves existing working sources.
 
-Resolve each selected role with `launch-provider.mjs --role <role> --profile <selected> --resolve --coordinator` before creating terminals. Include its effective access, enforcement, helper selection and warnings in the launch summary. The
+For terminal roles, obtain the exact workspace address with `role-terminal.mjs workspace` on the target execution host. For an all-chat profile, use the address from Orca’s worktree or folder metadata. Resolve the selected roles together with `launch-provider.mjs --roles --profile <selected> --resolve --coordinator` before creating terminals. Include its effective access, enforcement, helper selection and warnings in the launch summary. The
 Coordinator's access is selected by `--coordinator`; project YAML cannot select a
 different permission mode for these launches.
 
 Order: `--profiles` → one question (the profile, if there are several, and skills) →
-`--roles --coordinator --profile <selected>` and `PIPELINE CONFIG RESOLVED` → terminals.
+`--roles --resolve --coordinator --profile <selected>` and `PIPELINE CONFIG RESOLVED` → terminals.
 The choice is not written to YAML: active_profile stays the default profile.
 After that, everywhere — `--profile <selected>`: `--roles`, launching the role
 terminals, SETTINGS in the prompts.
@@ -345,6 +346,7 @@ After resolve:
 ```text
 PIPELINE CONFIG RESOLVED
 File: <absolute path>
+Workspace: <exact selector, host and worktree path>
 Profile: <selected profile>
 Language: <tag | auto — resolved when the task arrives>
 Planner: <provider> / <model> / <thinking>; use_subagents=<boolean>
@@ -360,6 +362,8 @@ Review reports: <absolute path = <project-root>/.orca-pod/reports>
 
 ## Subagents: policy and limits
 
+When delegation is enabled, each role dispatches independent assignments in parallel
+within its available slots. Planner can split research by area before combining the results.
 Use the launcher’s effective `policy` for this run. The Coordinator never
 creates helpers. An explicit `subagents` mapping replaces the defaults. Select
 up to three bundled preset specializations plus any number of custom helpers.
@@ -384,8 +388,8 @@ Provider mechanics, supported names and inline fallbacks are in [subagents.md](r
 children run, assigning explicit non-overlapping write paths in their shared folder;
 this separation is not technically enforced. Wait for all children and their writes
 before review or stage handoff, using the provider’s foreground result, notification
-or `wait_agent` in Codex. In Pi call the native `subagent` tool; verify one child on
-each new provider/model/thinking route before parallel fan-out. Do not use `sleep`,
+or `wait_agent` in Codex. In Pi, independent tasks can start together in the first native
+`subagent` call using `workflow: "parallel"`, including tasks on the same model route. Do not use `sleep`,
 timers or polling. A failed worker can be retried once; when the mechanism is
 incompatible or the retry fails, do the work inline. In the final report record total
 and peak concurrent helpers. Children never issue verdicts.
@@ -422,21 +426,31 @@ Pass names/sources per role, including empty sets.
 
 ## Terminal identity
 
-Remember the `terminal create` response at once and pass the addressees' handles in
-every handoff prompt — there is no file registry. A run failure is solved by a new
-pipeline launch, not by restoring from files.
+For each terminal role, retain the run ID and the exact Orca workspace, host, handle,
+PTY and incarnation issued at launch. Chat roles use their structured launch receipt
+and session mailbox. Resolve a managed terminal by run and role through the
+[terminal lifecycle helper](references/terminal-lifecycle.md). Titles are display labels.
+
+After a confirmed exit or stale incarnation, the Coordinator can replace that single
+terminal in the same run. Establish that previous children and writes have stopped
+before allowing new writers. Carry the last plan, report, snapshot, authorized cycle
+and outstanding delivery receipts into the replacement. Broadcast the verified
+`SERVICE: ROLE_HANDLE_REPLACED` contract to every active role. Reuse evidence with
+matching scope and snapshot. Settle an accepted but unconfirmed assignment from
+the old session's reports or explicit receipt before dispatching it again.
 
 ## Delivery between terminals
 
 The addressee is always a handle from the prompt. A role gets its own handle in the
 first prompt ("yours" in the TERMINALS line) and writes it into every request it waits
 for a reply to. A reply in your own terminal is not delivered: another role will not
-see it. If the addressee's handle is unknown or not accepted by Orca — do not guess by
-title: `BLOCKED` to the user with the full payload.
+see it. For a stale or missing address use Terminal identity above. If recovery cannot
+establish the exact address, retain the payload and report `BLOCKED`.
 
 The role sends the message itself, without subagents. For a terminal recipient,
 use `orca terminal send`; for a chat recipient use `orca orchestration send`.
-Prefer the helper below: it selects the command by the explicit destination,
+Use the helper below for `FINAL_READY` so it checks the Implementer reply address
+before dispatch. For other contracts it selects the command by the explicit destination,
 uses the session's resolved CLI, and passes stdin as one argument without shell
 expansion (including quotes, `$`, backticks and trailing newlines):
 
@@ -464,7 +478,10 @@ and the Planner mode helper cannot operate on chats. The legacy `TERMINALS:`
 label in handoff contracts carries explicit addresses, not shell variables.
 
 Terminal delivery requests `--wait-submit 5`: `accepted: true` proves input
-acceptance; `turn_started` proves the turn started. Chat delivery preserves the
+acceptance; `turn_started` proves the turn started. For `provider: unsupported`,
+`input_accepted` is the highest transport confirmation that provider offers. A
+reply or a report for the same plan/stage/attempt confirms work at the receiver.
+Silence, an idle terminal and a wait timeout do not justify another submission. Chat delivery preserves the
 Orca mailbox receipt; successful enqueueing is not proof of task completion.
 Act on chat messages when Orca delivers them; no terminal polling for chats.
 
@@ -501,9 +518,7 @@ Add `.orca-pod/` to the project's `.gitignore` (in `test` — the sandbox's):
 idempotent and changes only an existing `.gitignore`; the Coordinator keeps configuration migration separate from project code. Report `ADDED` to the user in one line, `OK` and `SKIP` —
 silently. No script — a warning, not a stop.
 
-This is a new pipeline: create your own role sessions in the exact workspace;
-do not adopt the user's live terminals or chats. Get the role list and resolved
-`surface` from `launch-provider.mjs --roles --profile <selected>`.
+This is a new pipeline. Create fresh role sessions in the exact workspace. Generate one UUID for the run. Use the same run ID for every role, including replacements. Get the role list, surface and effective access from the resolved profile above.
 
 For each **chat** role:
 
@@ -522,10 +537,9 @@ For each **chat** role:
 
 For each **terminal** role, keep the provider launcher and its native settings:
 
-1. `ORCA terminal create --worktree <exact selector> --title <role> --json`.
-2. Immediately record the result and the handle; get any missing PTY metadata through
-   `terminal show` of this handle, without searching by title.
-3. Send the shell command `exec node <launcher-path> --role <role-key> --profile <selected profile> --coordinator --terminal <recorded handle>` to that terminal with `--enter`. Shell-quote each substituted argument individually (including paths and profile names), then pass the complete command as one literal `--text` argument. Include the workspace address's `--environment` when targeting another Orca host.
+1. From the target project root on its execution host run `node '<absolute skill-dir>/scripts/role-terminal.mjs' create --run <uuid> --role <role-key> --profile <selected> --worktree '<exact selector>'`. It starts the provider inside the newly created pane and verifies that pane’s identity.
+2. Retain the receipt and use `role-terminal.mjs resolve --run <uuid> --role <role-key>` to look up the current verified address, PTY and incarnation. After an ambiguous create response, resolve the original run and role before taking further action.
+3. Record the launch stage, requested settings, observed model/thinking and helper status separately. Missing observations remain unknown. `provider_spawned` confirms a process launch. A turn requires a delivery observation, a reply, or an artifact tied to the assignment.
 4. `ORCA terminal wait --terminal <handle> --for tui-idle --timeout-ms 60000 --json`;
    readiness is `satisfied: true`. `blockedReason: "agent-trust-workspace"` — the
    role's agent (Codex, Claude Code) asks whether to trust the folder: do not send the
@@ -535,8 +549,7 @@ For each **terminal** role, keep the provider launcher and its native settings:
    Codex Planner handoff with the reason. Leave other hook trust settings alone.
 5. For a Codex Planner, run `node <absolute skill-dir>/scripts/codex-planner-mode.mjs --prepare <planner-handle>` before reporting readiness or delivering the first task. It uses `/plan` and verifies `/status` in that terminal. If mode verification fails, stop the handoff and report the exact error. Send the first task once after successful preparation using the normal delivery contract. Other roles skip this step.
 
-Role keys: planner, implementer, reviewer, chief_reviewer. Create is not idempotent:
-on a lost response check `terminal show` before retrying. The configured reviewers are
+Role keys: planner, implementer, reviewer, chief_reviewer. Use the [terminal lifecycle guide](references/terminal-lifecycle.md) to inspect or replace a role safely. The configured reviewers are
 prepared at bootstrap but receive work only on a review request.
 Pass the path `<project-root>/.orca-pod/reports/`, the profile, `reviewMode`, the subagent
 limit (`maxSubagents`) and `LANGUAGE` in the first prompts.
@@ -549,7 +562,8 @@ LANGUAGE") and send Planner one full prompt per the contracts. After accepted:
 PLANNER DISPATCHED — COORDINATOR EXITING
 Profile: <selected>; concurrent subagents: up to <maxSubagents> per role; effective access: <per role, from --resolve>
 Language: <tag>
-Planner: handle=<handle>; ptyId/incarnationId if available
+Run: <uuid>; workspace: <exact selector and host>
+Planner: handle=<handle>; ptyId/incarnationId if available; delivery stages=<observed>; turn=<confirmed|unknown>
 Implementer: handle=<handle>; Reviewer: handle=<handle> | not configured; Chief Reviewer: handle=<handle> | not configured
 Review mode: <reviewMode — who accepts stages and who issues the final verdict>
 Skills: <role → exact name/source>
@@ -557,7 +571,7 @@ Review reports: <absolute path = <project-root>/.orca-pod/reports>
 Next handoff: Planner → Implementer.
 ```
 
-The Coordinator exits and does not accompany implementation and replan.
+The Coordinator exits after dispatch. Resume the Coordinator only for an explicit operational request such as replacing a failed role.
 
 ## Test mode: `test`
 
@@ -588,7 +602,7 @@ The Coordinator in `test` is a regular start with the following differences:
 4. Do not ask the skills question: the additional sets are empty, the Planner's
    `using-superpowers` and `plan-blitz` stay. The profile question — as usual, if the sandbox config
    has several.
-5. Create the terminals in `path:<dir>`; reports — `reports` from the JSON.
+5. From `dir`, resolve the sandbox’s exact workspace selector and create the role sessions as in Terminal setup. Use `reports` from the prepare result.
 6. The task source is `task`. Add a block to the Planner's first prompt:
    `TEST MODE: sandbox <dir>. Spec and plan approvals are given by the user, as usual.
    In the first Implementer contract add the line "TEST MODE: read <seed>";
@@ -663,12 +677,22 @@ plan-blitz over the specification and design (one blitz for a combined document)
 Planner's visible terminal. If plan-blitz is `not installed` (the REQUIRED PLANNER SKILLS line), warn
 the user in one line and ask for approval in plain text; this is not a stop.
 
+For every spec, plan and revision, show the exact versioned path, current
+map/overview and resolved decisions before the approval prompt. An earlier
+"approved" belongs to the preceding discussion. Ask once on the displayed version.
+Record both decisions in the handoff as `approval=<version>@<round>` with the path.
+The plain-text fallback uses the same sequence and records `@text`. A changed
+version needs its own presentation and decision.
+
 Then writing-plans (Pi and Codex — `$superpowers:writing-plans`, Claude Code —
 `Skill writing-plans`). Each TODO:
 
 - `todoId`, goal and boundaries, independent acceptance criteria;
 - `dependsOn` — the TODOs without whose result this one cannot start;
 - `writeScope` — the files/directories that **only** this TODO changes;
+- public API additions required by the criteria, including method names/signatures
+  and affected consumers. Implementation details within the agreed module stay
+  inside that TODO. An unplanned public interface change goes back to Planner;
 - shared files (DI/routing/registries, dependency manifests, lockfiles,
   code generation, localizations) — a separate `integration` item owned by the Integrator;
 - stop conditions.
@@ -685,7 +709,8 @@ In `self` mode an empty list is not allowed: the static checks are the only
 verification of the result. Write the plan's `tests:` line (Invariants, "Tests only on
 request"): with `not requested` the plan has no test TODOs, no failing-test steps and
 no edits to existing tests; with `requested` — only the tests the user asked for, and
-no new test framework without their consent. Record the resolved settings and skill sources.
+no new test framework without their consent. Record `profile:`, `additional skills:`
+(names/sources per role, or `none`) and the `tests:` line in the versioned plan.
 
 Print `PLAN WRITTEN: <absolute path>` after writing the plan, with the same line about Git when it applies.
 Inline cross-review of the plan against the approved specification and design (scope, files, order, waves, risks,
@@ -722,6 +747,11 @@ The mode is set by the set of roles in the selected profile (`launch-provider.mj
 | `reviewer` | Reviewer | 3 including last-stage review and final diagnostics |
 | `chief` | Chief Reviewer | 3 including last-stage review and final diagnostics |
 | `self` | Implementer | 3 including last-stage self-check and final diagnostics |
+
+These limits apply per review cycle. Only an explicit user decision after a
+`BLOCKED` verdict opens a scoped `USER_AUTHORIZED_CONTINUATION`. Keep the
+previous report and open IDs. Restart the cycle attempt count at 1 and continue
+the artifact number in filenames. See [review-protocol.md](references/review-protocol.md).
 
 The Planner specifies diagnostic owner, scope, exact permitted read-only checks,
 timeout, fallback and required coverage. During implementation and earlier
@@ -777,7 +807,10 @@ you nor the workers write, change or run tests or follow TDD, a worker's task ca
 **Review.** Wait for all children, stop writing and send the stage reviewer of your
 mode (Reviewer in `full`/`reviewer`, Chief Reviewer in `chief`) **one**
 REVIEW_REQUEST for the whole stage: TODO → files, baseline, checks, deviations from
-the plan. Include final-stage marker, cumulative additions/changes/renames/deletions, affected consumers and planned diagnostics. Do not send one TODO at a time for review. Do not change code until the verdict.
+the plan. Before each request, save the frozen snapshot (or the path/change list
+without Git) under the artifact number. Attach each executed check’s exact command, exit code, output reference
+and snapshot. Without an output reference mark the result as reported by its
+owner. Include final-stage marker, cumulative additions/changes/renames/deletions, affected consumers and planned diagnostics. Do not send one TODO at a time for review. Do not change code until the verdict.
 In `self` mode, instead — the self-check (section "Review modes").
 
 - `CHANGES_REQUESTED` — fix **only the listed blocking** ids
@@ -785,10 +818,15 @@ In `self` mode, instead — the self-check (section "Review modes").
   fixes may use the selected `worker` when allowed, with non-overlapping files. Then a
   repeat REVIEW_REQUEST with an answer for each id: `FIXED` / `DISPUTED` /
   `SKIPPED` (non-blocking only), the fix delta, affected consumers and a list of other changes.
-- `APPROVED` of a stage — open the next stage; after the last one wait for the final
-  verdict (in `full` — from the Chief Reviewer).
+- After an intermediate `APPROVED`, open the next stage. After the last stage in
+  `full` mode, wait for the Chief Reviewer’s verdict. Only the Reviewer sends the
+  initial `FINAL_READY` to the Chief Reviewer.
 - `PLAN_REVISION_REQUIRED` — freeze the work, wait for a new plan version.
-- `BLOCKED` — wait for the user's decision.
+- `EVIDENCE_GAP` — specify affected TODOs, missing evidence, its provider, the
+  condition for resuming, and independent TODOs that may proceed. Track dependent
+  work and the gate at review. A confirmed plan error still goes to Planner.
+- `BLOCKED` — wait for the user's decision. For scoped continuation use the
+  [handoff contract](references/handoff-contracts.md).
 
 The Chief's `CHANGES_REQUESTED` is handled the same way, but the repeat request goes
 directly to the Chief Reviewer (CHIEF_FIX). Do not change the scope/approved plan silently.
@@ -805,10 +843,11 @@ Work strictly by [review-protocol.md](references/review-protocol.md). In brief:
 - a repeat round — only the registry check (`CLOSED`/`NOT_FIXED`/`PARTIAL`)
   and regressions inside the delta; new findings on already reviewed code outside the delta —
   only `BLOCKER` with the `missed-earlier` mark;
-- no more than 3 attempts per stage, then `BLOCKED` to the user;
+- at most three attempts per stage per cycle. On exhaustion write the `BLOCKED` report and send its path to the user. A verified user decision naming unresolved findings opens the next bounded cycle;
 - `APPROVED` of the last stage: in `full` mode — a request to the Chief Reviewer
-  (FINAL_READY) and a notification to the Implementer, the Reviewer does not issue `FINAL_APPROVED`;
-  in `reviewer` mode (Chief not configured) — you perform the final check yourself per
+  (`FINAL_READY`). After delivery, notify the Implementer that the request was sent.
+  The Chief Reviewer issues `FINAL_APPROVED` in this mode.
+  In `reviewer` mode (Chief not configured), perform the final check yourself per
   review-protocol §6 and issue `FINAL_APPROVED` / `CHANGES_REQUESTED`.
 
 Use the planned read-only checks and record unsupported coverage and freshness.
@@ -825,14 +864,14 @@ section and review-protocol §3–5 — REVIEW_REQUEST comes directly to you. On
 FINAL_READY (or after `APPROVED` of the last stage in `chief` mode): the last
 Reviewer report (the full registry), spec/plan, the Integrator's report, then **in
 parallel** lanes by code area and `evidence-auditor`, when selected and available. Check that the blocking `R<n>` are closed and have not returned, assess the
-code as a whole, write `chief-attempt<N>.md` and issue:
+code as a whole. Write `chief-attempt<N>.md` in full mode or `final-attempt<N>.md` in chief-only mode and issue the verdict:
 
 - **FINAL_APPROVED** — no blocking findings and required verification is complete;
 - **COMPLETED_UNVERIFIED** — required checks remain unavailable after bounded retry/fallback, with no unresolved blocking findings or other obligations;
 - **CHANGES_REQUESTED** — a list of blocking `C<n>`; the Integrator fixes and
   sends CHIEF_FIX directly to you; verify the registry, fix delta and affected consumers;
 - **PLAN_REVISION_REQUIRED** — a proven plan error → the Planner by handle;
-- **BLOCKED** — blocking findings after the applicable limit (two in `full`, three in `chief`) or an unresolvable conflict.
+- **BLOCKED** — blocking findings after the applicable cycle limit (two in `full`, three in `chief`) or an unresolvable conflict.
 
 Send the verdict to the Implementer by the handle from FINAL_READY (in `chief` mode —
 from REVIEW_REQUEST) with the `send-handoff.mjs` helper (`orca terminal send` for terminals, `orchestration send` for chats): the role will not see
@@ -841,7 +880,8 @@ output in its own terminal. A previous FINAL_APPROVED does not cover new changes
 ## Review reports
 
 `<project-root>/.orca-pod/reports/<planVersion>/` — in the project, not in the skill
-folder. The Reviewer creates the subdirectory at the first verdict; `ensure-gitignore.sh`
+folder. Implementer creates the directory when saving evidence and the first review
+snapshot. Reviewer validates the snapshot and writes each verdict. `ensure-gitignore.sh`
 adds the `.orca-pod/` folder to the project's `.gitignore` only when the project already
 has one (the script never creates the file); without a `.gitignore` the reports are not
 ignored, and the user adds `.orca-pod/` before committing. Files, template and registry —
@@ -852,19 +892,19 @@ The Planner reads them on replan; the Implementer — by the link from the verdi
 ## Return to Planner: PLAN_REVISION_REQUIRED
 
 The reviewer records a proven plan error and the area of revision; the Implementer is
-frozen; one message to the Planner by handle (the same terminal, there is no second
-Planner; **there is no Orca terminal resume command**). The Planner drafts the
-revision, gets explicit approval (plan-blitz over the changed items only), then creates
-new immutable spec/plan versions and tells the Implementer the new version and
+frozen; one message to the current verified Planner address. Recover a dead terminal
+using Terminal identity. The Planner drafts the
+revision at its new versioned paths, gets explicit approval (plan-blitz over the changed items only), then freezes
+the displayed spec/plan versions and tells the Implementer the new version and
 `affectedTodoIds` (including transitively dependent ones). The
 affected TODOs are implemented and reviewed again; the registry for the unaffected
-ones is kept. The user's refusal keeps BLOCKED. The Coordinator does not come back to life.
+ones is kept. The user's refusal keeps BLOCKED.
 
 ## Completion
 
 Only after the mode's final verdict (`FINAL_APPROVED`, `SELF_VERIFIED`, or
-`COMPLETED_UNVERIFIED`) the Implementer reports in `LANGUAGE`: the review mode,
-changed files, waves and delegation (helpers launched, maximum concurrent), checks run/skipped,
+`COMPLETED_UNVERIFIED`) the Implementer reports the review mode, changed files and waves in `LANGUAGE`. Include
+`launched_total`, `peak_concurrent`, reasons for inline work when delegation was enabled, checks run/skipped,
 the verdicts and rounds of review or self-check, open non-blocking findings
 (`ACCEPTED_RISK`), plan revisions, report paths and the final status. No final
 verdict — no COMPLETED, even with green checks. On an ambiguous process/delivery —

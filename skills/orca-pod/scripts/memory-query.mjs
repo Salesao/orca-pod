@@ -2,7 +2,7 @@
 import { fileURLToPath } from 'node:url';
 import { existsSync, realpathSync } from 'node:fs';
 import { projectRoot, readLocalFile } from './memory-files.mjs';
-import { readIndex, checkFreshness, searchIndex } from './memory-index.mjs';
+import { collectCorpus, readIndex, checkFreshness, searchIndex } from './memory-index.mjs';
 
 const usage = 'Usage: memory-query.mjs search <query> [--limit N] | show <id> [--offset N] | recent [--limit N] | context';
 function parse(args) {
@@ -27,17 +27,19 @@ function view(source,index) {
 function main() {
   let options;
   try { options=parse(process.argv.slice(2)); } catch(e) { console.error(e.message); process.exitCode=2; return; }
-  const root=projectRoot(process.cwd()), index=readIndex(root), freshness=checkFreshness(root,index);
+  const root=projectRoot(process.cwd()), index=readIndex(root);
+  const sources=collectCorpus(root), freshness=checkFreshness(root,index,sources);
   let result;
   if (options.command==='search') result=searchIndex(index,options.value,options.limit);
   else if (options.command==='recent') result=index.sources.filter(s=>s.kind!=='memory').sort((a,b)=>String(b.date).localeCompare(String(a.date)) || a.id.localeCompare(b.id)).slice(0,options.limit).map(s=>view(s,index));
   else if (options.command==='show') {
-    const source=index.sources.find(s=>s.id===options.value);
-    if (!source) throw new Error(`Source not found in index: ${options.value}`);
+    const indexed = index.sources.some(s=>s.id===options.value);
+    const source=sources.find(s=>s.id===options.value) ?? index.sources.find(s=>s.id===options.value);
+    if (!source) throw new Error(`Source not found: ${options.value}`);
     try {
       const chars=Array.from(readLocalFile(root,source.path).toString('utf8'));
       const text=chars.slice(options.offset,options.offset+20000).join('');
-      result={...view(source,index),text,offset:options.offset,nextOffset:options.offset+20000<chars.length?options.offset+20000:null,current:true,changed:freshness.changed.includes(source.path)};
+      result={...view(source,index),text,offset:options.offset,nextOffset:options.offset+20000<chars.length?options.offset+20000:null,current:true,indexed,changed:freshness.changed.includes(source.path)};
     } catch(e) { result={...view(source,index),unavailable:true,error:e.message}; process.exitCode=1; }
   } else {
     let remaining=6000, truncated=false; const pages=[];
@@ -49,7 +51,11 @@ function main() {
     const recent=index.sources.filter(s=>s.kind==='record').sort((a,b)=>String(b.date).localeCompare(String(a.date)) || a.id.localeCompare(b.id)).slice(0,5).map(s=>view(s,index));
     result={pages,truncated,recent};
   }
-  console.log(JSON.stringify({status:freshness.stale?'STALE':'CURRENT',...(freshness.stale?{warning:'Snapshot may be incomplete; excerpts may be outdated. Read current originals.',freshness}:{}),result},null,2));
+  const built = Date.parse(index.generatedAt);
+  const snapshot = { generatedAt: index.generatedAt ?? null,
+    ageSeconds: Number.isFinite(built) ? Math.max(0, Math.floor((Date.now()-built)/1000)) : null };
+  console.log(JSON.stringify({status:freshness.stale?'STALE':'CURRENT',snapshot,
+    ...(freshness.stale?{warning:'Read the current report or use show file:<path>. See freshness.added for sources outside the snapshot.',freshness}:{}),result},null,2));
 }
 if (process.argv[1] && existsSync(process.argv[1]) && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try { main(); } catch(e) { console.error(`MEMORY QUERY ERROR: ${e.message}`); process.exitCode=1; }

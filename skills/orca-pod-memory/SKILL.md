@@ -19,7 +19,7 @@ node <orca-pod-skill>/scripts/memory-query.mjs context
 node <orca-pod-skill>/scripts/memory-lint.mjs
 ```
 
-A STALE index is still searchable but may omit new sources or show old excerpts. Read the current original using `show`, and report unavailable sources. Search is local lexical matching, not semantic verification. A missing or corrupt index requires the authorized writer to run `node <orca-pod-skill>/scripts/memory-sync.mjs --index-only`; readers do not repair it.
+Search results include the snapshot creation time and its age in seconds. A STALE index is still searchable but may omit new sources or show old excerpts. The paths in `freshness.added` can already be read with `show file:<path>`, including reports created during review. Read the current original using `show`, and report unavailable sources. Search is local lexical matching, not semantic verification. A missing or corrupt index requires the authorized writer to run `node <orca-pod-skill>/scripts/memory-sync.mjs --index-only`; readers do not repair it.
 
 ## Save significant work
 

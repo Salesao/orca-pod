@@ -142,11 +142,11 @@ test("review-protocol §7: the report template has English labels, the verdict i
   assert.notEqual(start, -1, "the report template starts with '# Review <stage>'");
   const template = PROTOCOL.slice(start, PROTOCOL.indexOf("\n```", start + 1));
   assert.match(template, /^- Verdict: APPROVED \| CHANGES_REQUESTED \| PLAN_REVISION_REQUIRED \| BLOCKED$/m);
-  assert.match(template, /^- planVersion: <v>; stage: <stage>; attempt: <N>\/<limit>; date: <YYYY-MM-DD>$/m);
+  assert.match(template, /^- planVersion: <v>; stage: <stage>; cycle: <c>; attempt: <k>\/<limit>; artifact: <N>; date: <YYYY-MM-DD>$/m);
   assert.match(template, /^- Lanes: /m);
   assert.match(template, /^## New findings of this round$/m);
   assert.match(template, /^## Registry$/m);
-  assert.match(template, /^\| id \| category \| TODO \| path \| status \| summary \|$/m);
+  assert.match(template, /^\| id \| category \| TODO \| path \| escalated_to \| superseded_by \| final_status \| summary \|$/m);
   assert.match(template, /^## Checks$/m);
   assert.doesNotMatch(template, /[\u0400-\u04FF]/);
 });
@@ -333,8 +333,8 @@ test("SKILL.md, Return to Planner: plan-blitz covers only the changed items of t
 });
 
 // The blitz rewrites the document between rounds, so the immutable version can only be written after the approval.
-test("SKILL.md, Return to Planner: the revision is approved through plan-blitz first, the immutable versions come after", () => {
-  inSequence(skillSection("Return to Planner").replace(/\s+/g, " "), ["plan-blitz over the changed items only", "then creates new immutable spec/plan versions"]);
+test("SKILL.md, Return to Planner: the exact revision paths are presented before approval and frozen afterwards", () => {
+  inSequence(skillSection("Return to Planner").replace(/\s+/g, " "), ["new versioned paths", "plan-blitz over the changed items only", "then freezes the displayed spec/plan versions"]);
 });
 
 test("skill-selection §1: plan-blitz is a required Planner skill next to using-superpowers", () => {

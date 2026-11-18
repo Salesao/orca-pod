@@ -266,6 +266,12 @@ blitz adds that the user did not decide.
 
 ## Approval
 
+An approval applies to the version and absolute path shown in that window or
+its immediately preceding overview. Treat an earlier reply as input to the
+discussion. After any material rewrite, show the revised overview/map and path
+before collecting approval. For an Orca Pod handoff record the version, path
+and approving round in the handoff outside the immutable document.
+
 When nothing is open: print the full list again before every approval window, repeats included, and never
 "see above"; then a separate window with one question, "Do you approve the spec?" (or "the plan?").
 

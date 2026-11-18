@@ -200,6 +200,147 @@ test("check: the verdict and the caught defect are read from English labels, not
   }
 });
 
+function historyFixture(t, roles) {
+  const root = mkdtempSync(path.join(tmpdir(), "orca-review-history-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const config = path.join(root, "config.yaml");
+  writeFileSync(config, [
+    "active_profile: demo", "profiles:", "  demo:", "    default_provider: pi", "    roles:",
+    ...["planner", "implementer", ...roles].flatMap((role) => [
+      "      " + role + ":", "        model: demo", "        thinking: high",
+    ]),
+  ].join("\n") + "\n");
+  const dir = path.join(root, "sandbox");
+  const prepared = spawnSync(process.execPath, [SANDBOX_SCRIPT, "prepare", "--dir", dir, "--config", config]);
+  assert.equal(prepared.status, 0, prepared.stderr.toString());
+  const plan = path.join(dir, ".orca-pod", "reports", "v1");
+  mkdirSync(plan, { recursive: true });
+  return {
+    plan, dir,
+    suiteEvidence(artifact) {
+      writeFileSync(path.join(plan, artifact + ".patch"), "");
+      writeFileSync(path.join(plan, artifact + ".log"), "# pass 1\n# fail 0\n");
+      return [
+        "## Checks", "| command | exit_code | evidence_ref | snapshot | Outcome/reason |", "| --- | --- | --- | --- | --- |",
+        `| node --test | 0 | ${artifact}.log | ${artifact}.patch | passed |`,
+      ].join("\n");
+    },
+    report(name, body) { writeFileSync(path.join(plan, name), body + "\n"); },
+    check(stage) {
+      const result = spawnSync(process.execPath, [SANDBOX_SCRIPT, "check", "--dir", dir], { encoding: "utf8" });
+      const line = result.stdout.split("\n").find((entry) => entry.includes(stage + " review attempts per cycle"));
+      assert.ok(line, result.stdout + result.stderr);
+      return line;
+    },
+  };
+}
+
+test("check: a scoped user continuation after legacy Chief BLOCKED advances the artifact and resets only the cycle attempt", (t) => {
+  const fixture = historyFixture(t, ["reviewer", "chief_reviewer"]);
+  fixture.report("all-attempt1.md", "Verdict: APPROVED");
+  fixture.report("chief-attempt1.md", "Verdict: CHANGES_REQUESTED");
+  const registry = (c1, c2) => [
+    "## Registry", "| id | category | escalated_to | superseded_by | final_status |", "| --- | --- | --- | --- | --- |",
+    "| R1 | MAJOR | C1 | — | " + c1 + " |", "| C1 | MAJOR | — | — | " + c1 + " |", "| C2 | BLOCKER | — | — | " + c2 + " |",
+  ].join("\n");
+  const blocked = "Verdict: BLOCKED\n" + registry("OPEN", "PARTIAL");
+  fixture.report("chief-attempt2.md", blocked);
+  const authorization = [
+    "USER_AUTHORIZED_CONTINUATION [plan=v1, stage=chief, cycle=2, authorized_by=user, scope=C1 C2]",
+    "previous_report: " + path.join(fixture.plan, "chief-attempt2.md"),
+    "decision_ref: user message 8",
+  ].join("\n");
+  const third = [
+    "- planVersion: v1; stage: chief; cycle: 2; attempt: 1/2; artifact: 3",
+    "Verdict: CHANGES_REQUESTED", authorization, registry("CLOSED", "PARTIAL"),
+  ].join("\n");
+  const fourth = [
+    "- planVersion: v1; stage: chief; cycle: 2; attempt: 2/2; artifact: 4",
+    "Verdict: FINAL_APPROVED", registry("CLOSED", "CLOSED"), fixture.suiteEvidence("chief-attempt4"),
+  ].join("\n");
+  fixture.report("chief-attempt3.md", third);
+  fixture.report("chief-attempt4.md", fourth);
+  assert.match(fixture.check("chief"), /^PASS/);
+  for (const [before, after] of [
+    [authorization, ""], ["authorized_by=user", "authorized_by=reviewer"],
+    ["chief-attempt2.md", "chief-attempt1.md"], ["scope=C1 C2", "scope=C3"],
+    ["scope=C1 C2", "scope=C1"], ["decision_ref: user message 8", ""],
+    ["attempt: 1/2", "attempt: 3/2"], ["artifact: 3", "artifact: 2"],
+    ["R1 | MAJOR | C1 | — | CLOSED", "R1 | MAJOR | C1 | — | ACCEPTED_RISK"],
+    ["R1 | MAJOR | C1 |", "R1 | MAJOR | C99 |"],
+  ]) {
+    fixture.report("chief-attempt3.md", third.replace(before, after));
+    assert.match(fixture.check("chief"), /^FAIL/, before + " → " + after);
+  }
+  fixture.report("chief-attempt3.md", third);
+  fixture.report("chief-attempt2.md", blocked.replace("Verdict: BLOCKED", "Verdict: CHANGES_REQUESTED"));
+  assert.match(fixture.check("chief"), /^FAIL/);
+  fixture.report("chief-attempt2.md", blocked);
+  rmSync(path.join(fixture.plan, "chief-attempt3.md"));
+  assert.match(fixture.check("chief"), /^FAIL/);
+  rmSync(path.join(fixture.plan, "chief-attempt4.md"));
+  fixture.report("chief-attempt3.md", third.replace("1/2", "1/1").replace("CHANGES_REQUESTED", "FINAL_APPROVED")
+    .replace(registry("CLOSED", "PARTIAL"), registry("CLOSED", "CLOSED")) + "\n" + fixture.suiteEvidence("chief-attempt3"));
+  assert.match(fixture.check("chief"), /^PASS/);
+});
+
+test("check: the sole reviewer shares the last-stage budget and accepts a legacy final-attempt1 companion", (t) => {
+  const fixture = historyFixture(t, ["reviewer"]);
+  fixture.report("all-attempt1.md", "Verdict: CHANGES_REQUESTED");
+  fixture.report("all-attempt2.md", "Verdict: APPROVED");
+  fixture.report("final-attempt1.md", "Verdict: CHANGES_REQUESTED");
+  fixture.report("final-attempt2.md", "Verdict: FINAL_APPROVED");
+  assert.match(fixture.check("all"), /^PASS/);
+  fixture.report("final-attempt2.md", "Verdict: CHANGES_REQUESTED");
+  fixture.report("final-attempt3.md", "Verdict: FINAL_APPROVED");
+  assert.match(fixture.check("all"), /^FAIL/);
+  for (const n of [1, 2, 3]) rmSync(path.join(fixture.plan, "final-attempt" + n + ".md"));
+  const modern = (n, verdict) => `- planVersion: v1; stage: all; cycle: 1; attempt: ${n}/3; artifact: ${n}\nVerdict: ${verdict}`;
+  fixture.report("final-attempt2.md", modern(2, "CHANGES_REQUESTED"));
+  const final = modern(3, "FINAL_APPROVED") + "\n" + fixture.suiteEvidence("final-attempt3");
+  fixture.report("final-attempt3.md", final);
+  assert.match(fixture.check("all"), /^PASS/);
+  fixture.report("final-attempt3.md", final.replace("3/3", "2/3"));
+  assert.match(fixture.check("all"), /^FAIL/);
+});
+
+test("check: modern terminal success carries output and a real snapshot for the planned suite", (t) => {
+  const fixture = historyFixture(t, ["reviewer", "chief_reviewer"]);
+  const header = (stage) => `- planVersion: v1; stage: ${stage}; cycle: 1; attempt: 1/${stage === "chief" ? 2 : 3}; artifact: 1\n`;
+  fixture.report("all-attempt1.md", header("all") + "Verdict: APPROVED");
+  fixture.report("chief-attempt1.md", "Verdict: FINAL_APPROVED");
+  assert.match(fixture.check("all"), /^PASS/); // Stage can have no planned command.
+  assert.match(fixture.check("chief"), /FAIL.*missing cycle\/artifact/);
+  const result = (evidence) => {
+    fixture.report("chief-attempt1.md", header("chief") + "Verdict: FINAL_APPROVED\n" + evidence);
+    return fixture.check("chief");
+  };
+  const checks = fixture.suiteEvidence("all-attempt1"); // Chief references the Reviewer's run.
+  for (const invalid of [
+    "", "## Checks\nAll tests passed.", checks.replace("0", "skipped"), checks.replace("0", "1"),
+    checks.replace("all-attempt1.patch", "missing.patch"), checks.replace("all-attempt1.log", "missing.log"),
+    checks.replace("node --test", "tsc --noEmit"),
+  ]) assert.match(result(invalid), /^FAIL/, invalid);
+  assert.match(result(checks), /^PASS/);
+  const commit = spawnSync("git", ["-C", fixture.dir, "rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim();
+  const baseline = checks.replace("all-attempt1.patch", "HEAD=" + commit);
+  assert.match(result(baseline), /^PASS/);
+  assert.match(result(checks.replace("all-attempt1.patch", "HEAD=" + "0".repeat(40))), /^FAIL/);
+  writeFileSync(path.join(fixture.dir, "unreviewed.txt"), "worktree differs from HEAD\n");
+  assert.match(result(baseline), /^FAIL/);
+});
+
+test("check: self-check budgets are per stage and a new stage starts at artifact 1", (t) => {
+  const fixture = historyFixture(t, []);
+  for (const stage of ["S1", "S2"]) {
+    fixture.report(`self-check-${stage}-attempt1.md`, "Verdict: CHANGES_REQUESTED");
+    fixture.report(`self-check-${stage}-attempt2.md`, "Verdict: SELF_VERIFIED");
+    assert.match(fixture.check(stage), /^PASS/);
+  }
+  rmSync(path.join(fixture.plan, "self-check-S2-attempt1.md"));
+  assert.match(fixture.check("S2"), /^FAIL/);
+});
+
 test("prepare: an existing directory without the marker is refused — TEST SANDBOX ERROR", () => {
   const root = mkdtempSync(path.join(tmpdir(), "orca-sandbox-test-"));
   try {

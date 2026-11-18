@@ -8,7 +8,7 @@ Result check: `/orca-pod test check`.
 | --- | --- | --- | --- |
 | 1 | Coordinator | a profile question if the config has several (one line per profile); `PIPELINE CONFIG RESOLVED` with the selected profile and the subagent limit, the role terminals in the sandbox, `PLANNER DISPATCHED — COORDINATOR EXITING` | the terminal where `test` was invoked |
 | 2 | Planner | parallel scouts; spec and plan in the sandbox's `docs/superpowers/`; TODO A (truncate), B (duration), C (chunk) — wave 1; D (report) — wave 2 (`dependsOn` A, B); `src/index.js` — an `integration` item; one stage `all`; `verificationChecks: node --test`; `tests: requested` (TASK.md item 6). Before each approval runs plan-blitz (a round of multiple-choice questions over the spec, then over the plan, and an approval window) — answer the questions, then approve | the Planner terminal |
-| 3 | Implementer | wave 1 — three workers in parallel, wave 2 — a worker or inline, integration of `index.js`, `node --test`, no `verifier` or audit lanes, **one** `REVIEW_REQUEST [stage=all, attempt=1]` | the Implementer terminal |
+| 3 | Implementer | wave 1 — three workers in parallel, wave 2 — a worker or inline, integration of `index.js`, `node --test`, no `verifier` or audit lanes, **one** REVIEW_REQUEST for stage `all` at cycle 1, attempt 1, artifact 1, with its snapshot, command, exit code and saved output | the Implementer terminal |
 | 4 | Reviewer | parallel lanes (A, B, C, D + integration; in Pi also lens-checker); `all-attempt1.md` with the registry; `CHANGES_REQUESTED` with a blocking `R<n>` about a non-integer `size` in `chunk` (AC-C2) | the Reviewer terminal, `all-attempt1.md` |
 | 5 | Implementer | fixes only the blocking ids; `REVIEW_REQUEST [attempt=2]` with `R<n> — FIXED` | the Implementer terminal |
 | 6 | Reviewer | registry check mode: `R<n>` → `CLOSED`, only the delta is checked, no new findings outside the delta (except a `missed-earlier` BLOCKER); `APPROVED`; `FINAL_READY` → Chief | `all-attempt2.md`, `all-attempt2.delta` |
@@ -35,7 +35,10 @@ Signs of problems that the test should reveal:
 
 - on attempt 2 the Reviewer opens new MAJOR/MINOR findings on code outside the delta — the
   registry check mode is violated;
-- more than 3 review attempts without `BLOCKED` — the round limit does not work;
+- a stage exceeds three attempts in a cycle, or the separate Chief exceeds two.
+  A user can authorize another cycle after BLOCKED for specific open ids. The
+  sandbox checks the recorded authorization and the continuous artifact sequence,
+  including across a cycle boundary or a terminal replacement;
 - a REVIEW_REQUEST per TODO separately — the Implementer does not assemble a batch;
 - the workers of wave 1 are launched sequentially — there is no parallelism;
 - the plan has no `tests:` line or says `not requested` although TASK.md asks for tests — the

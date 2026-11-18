@@ -141,7 +141,9 @@ You ── /orca-pod <task> ──▶ Coordinator    your own session: checks th
 - **Batch review.** Reviewers get one request per stage and use parallel lanes when delegation is enabled. Findings go into a
   registry, and only `BLOCKER` and `MAJOR` findings block. Review is bounded: a Reviewer gets up to 3 rounds per
   stage and a Chief Reviewer up to 2 attempts (3 when it is the only reviewer); if it does not converge the run ends
-  `BLOCKED` and you decide.
+  `BLOCKED` and you decide. You can authorize a new cycle for specific open findings.
+  The new cycle starts at attempt 1 and keeps the previous reports and their numbering.
+  If a TODO needs external evidence, the role records what is missing and which independent TODOs can proceed.
 - **Checks follow the change.** During work, diagnostics target changed files. The last stage gets one cumulative
   pass over all changes. After fixes, checks cover the fix and affected consumers; Chief checks its own late fixes.
   If required checks remain unavailable after retry and fallback, with the work complete and blockers resolved,
@@ -518,8 +520,11 @@ To check a config without starting anything, run this from the project root:
 node ~/.agents/skills/orca-pod/scripts/launch-provider.mjs --profiles
 ```
 
+To see the effective access and helper preflight for the active profile, use the same script with `--roles --resolve --coordinator`. Add `--profile <name>` to inspect another profile.
+
 ## Troubleshooting
 
+- **A role terminal exited during review.** Recover the role by run ID and role name. The Coordinator passes the snapshot and report paths to the replacement and checks which requests still need delivery. [Terminal recovery](skills/orca-pod/references/terminal-lifecycle.md)
 - **A role terminal is stuck on a trust question.** Codex, Claude Code and Qoder can ask whether to trust a folder the first
   time a role starts in it, and Codex asks even with `full_access`. The Coordinator reports the blocked terminal;
   answer the question in that role's terminal and the run continues.

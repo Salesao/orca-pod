@@ -2,6 +2,31 @@
 import { spawnSync } from 'node:child_process';
 import { orcaCommand } from './orca-command.mjs';
 
+const terminalAddress = /^term_[a-z0-9-]+$/i;
+const chatAddress = /^orca_session_id:[a-z0-9_-]+$/i;
+
+function checkFinalReady(payload, destination) {
+  const lines = payload.trimStart().split(/\r?\n/);
+  // Some older clients put the ROLE line immediately before the protocol token.
+  const header = lines[0].startsWith('ROLE:') ? lines.slice(1).find((line) => line.trim()) : lines[0];
+  if (!/^FINAL_READY\b/.test(header?.trimStart() ?? '')) return;
+
+  const addresses = new Set();
+  for (const line of lines) {
+    const field = /^IMPLEMENTER_ADDRESS:\s*(.*?)\s*$/i.exec(line);
+    if (field) addresses.add(field[1]);
+    if (/^(?:TERMINALS:|Implementer\s+handle\s*=)/i.test(line)) {
+      for (const match of line.matchAll(/\bImplementer\s+handle\s*=\s*([^\s;,]*)/gi)) {
+        addresses.add(match[1].replace(/\.$/, ''));
+      }
+    }
+  }
+  const [address] = addresses;
+  if (addresses.size !== 1 || !(terminalAddress.test(address) || chatAddress.test(address)) || address === destination) {
+    throw new Error('FINAL_READY requires one unambiguous IMPLEMENTER_ADDRESS: <term_handle or orca_session_id:mailbox> distinct from the Chief destination. Use the verified role address for this run.');
+  }
+}
+
 async function main(argv) {
   const options = {};
   for (let i = 0; i < argv.length; i += 2) {
@@ -12,8 +37,8 @@ async function main(argv) {
     options[key] = argv[i + 1];
   }
   const target = options['--to'] ?? '';
-  const terminal = /^term_[a-z0-9-]+$/i.test(target);
-  const chat = /^orca_session_id:[a-z0-9_-]+$/i.test(target);
+  const terminal = terminalAddress.test(target);
+  const chat = chatAddress.test(target);
   if (!terminal && !chat) throw new Error('Use the exact term_ handle or orca_session_id: mailbox supplied by Orca; never a title or active tab');
   if (options['--on'] && (terminal || options['--environment'])) throw new Error('--on is for chat mail to a paired server and cannot be combined with --environment');
   const chunks = [];
@@ -25,6 +50,7 @@ async function main(argv) {
   }
   const payload = Buffer.concat(chunks).toString('utf8');
   if (!payload.trim() || payload.includes('\0')) throw new Error('Provide a non-empty text payload without NUL on stdin');
+  checkFinalReady(payload, target);
   const args = terminal
     ? ['terminal', 'send', '--terminal', target, '--text', payload, '--enter', '--wait-submit', '5']
     : ['orchestration', 'send', '--to', target, '--subject', 'orca-pod handoff', '--body', payload, '--type', 'handoff'];

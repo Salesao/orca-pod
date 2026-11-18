@@ -60,9 +60,9 @@ export function readIndex(root) {
   if (!data || data.schemaVersion !== 1 || data.algorithmVersion !== 1 || !Array.isArray(data.sources) || data.sources.some(s=>!s || typeof s.id !== 'string' || typeof s.path !== 'string' || !s.search || typeof s.search.body !== 'string')) throw new Error('Incompatible search index; ask the authorized writer to run memory-sync.mjs --index-only.');
   return data;
 }
-export function checkFreshness(root,index) {
+export function checkFreshness(root,index,sources=collectCorpus(root)) {
   const previous = new Map(index.sources.map(s=>[s.id,s]));
-  const current = new Map(collectCorpus(root).map(s=>[s.id,s]));
+  const current = new Map(sources.map(s=>[s.id,s]));
   const changed=[],missing=[],added=[];
   for (const [id,s] of previous) { if (!current.has(id)) missing.push(s.path); else if (current.get(id).fingerprint !== s.fingerprint) changed.push(s.path); }
   for (const [id,s] of current) if (!previous.has(id)) added.push(s.path);

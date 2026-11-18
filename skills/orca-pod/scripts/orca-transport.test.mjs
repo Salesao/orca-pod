@@ -46,6 +46,28 @@ test('refuses ambiguous destinations and empty payloads before sending', () => {
   assert.equal(run('term_abc', ' \n').status, 2);
 });
 
+test('FINAL_READY validates its reply address before either transport runs', () => {
+  for (const [to, route] of [
+    ['term_chief', 'IMPLEMENTER_ADDRESS: orca_session_id:builder_9'],
+    ['orca_session_id:chief', 'TERMINALS: Reviewer handle=term_other; Implementer handle=term_builder; Planner handle=term_plan'],
+    ['term_chief', 'Implementer handle=term_builder; Planner handle=term_plan.'],
+  ]) {
+    const payload = 'FINAL_READY [plan=v2]\n' + route;
+    const response = to.startsWith('term_') ? { send: { accepted: true } } : { messageId: 'msg1' };
+    const result = run(to, payload, [], { ok: true, result: response });
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(JSON.parse(result.stdout).argv.includes(payload));
+  }
+  for (const route of ['', 'IMPLEMENTER_ADDRESS: active', 'Implementer handle=term_chief',
+    'IMPLEMENTER_ADDRESS: term_one\nTERMINALS: Implementer handle=term_two',
+    'Notes: Implementer handle=term_example']) {
+    const result = run('term_chief', 'ROLE: Chief Reviewer\nFINAL_READY [plan=v2]\n' + route);
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /IMPLEMENTER_ADDRESS/);
+    assert.equal(result.stdout, '');
+  }
+});
+
 test('Orca rejection is preserved and is not retried or reported as success', () => {
   const result = run('term_abc', 'task', [], { ok: false, error: { code: 'terminal_handle_stale', message: 'Re-list' } });
   assert.equal(result.status, 2);
